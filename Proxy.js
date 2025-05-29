@@ -3,7 +3,7 @@ const express = require('express'); // Express.js for creating the server
 const { createProxyMiddleware } = require('http-proxy-middleware'); // Middleware for proxying requests
 const zlib = require('zlib'); // Node.js built-in module for compression/decompression
 const https = require('https'); // Import https module
-const http = require('http');   // NEW: Import http module
+const http = require('http');   // Import http module
 const fs = require('fs');       // Import fs module to read certificate files
 const cookieParser = require('cookie-parser'); // Import cookie-parser
 const jwt = require('jsonwebtoken'); // Import jsonwebtoken
@@ -15,27 +15,26 @@ const rateLimit = require('express-rate-limit'); // Import express-rate-limit
 const app = express();
 app.use(express.json()); // Enable parsing of JSON request bodies for API endpoints
 
-// --- NEW: Use cookie-parser middleware ---
+// --- Use cookie-parser middleware ---
 app.use(cookieParser());
 
-// --- DIAGNOSTIC ADDITION: Log all incoming Express requests ---
+// --- Log all incoming Express requests ---
 app.use((req, res, next) => {
     console.log(`DEBUG: Express received request for: ${req.originalUrl}`);
     next(); // Pass the request to the next middleware (which is our proxy)
 });
-// --- END DIAGNOSTIC ADDITION ---
 
 // Define the port on which the proxy server will listen
-// Default to 80 for ECS behind ALB, but allow 443 for direct HTTPS testing
-const PORT = process.env.PORT || 80;
+const PORT = process.env.PORT || 443; // Default to 443 for HTTPS local testing
 
 // Define the target URL to which requests will be proxied.
 const TARGET_URL = 'http://tba.uglyyellowbunny.com/';
 
-// --- HTTPS Certificate Credentials (Conditional) ---
+// --- HTTPS Certificate Credentials ---
+// For local deployment, these files (key.pem, cert.pem) should be in the same directory.
+// Environment variables TLS_KEY_PATH and TLS_CERT_PATH are for container deployments.
 let credentials = null;
-// Only load certs if running directly with HTTPS (e.g., local dev or non-ALB HTTPS)
-if (PORT === 443 || process.env.USE_HTTPS === 'true') {
+if (PORT === 443 || process.env.USE_HTTPS === 'true') { // Only load if HTTPS is intended
     try {
         const privateKey = fs.readFileSync(process.env.TLS_KEY_PATH || 'key.pem', 'utf8');
         const certificate = fs.readFileSync(process.env.TLS_CERT_PATH || 'cert.pem', 'utf8');
@@ -59,6 +58,8 @@ const dbConfig = {
     password: process.env.DB_PASSWORD || 'password', // Use environment variable or default
     database: process.env.DB_NAME || 'paywall_db' // Use environment variable or default
 };
+
+console.info(dbConfig);
 
 let pool; // Connection pool for MySQL
 
@@ -180,7 +181,26 @@ const paywallMiddleware = async (req, res, next) => { // Made async to use await
 // --- END PAYWALL CONFIGURATION ---
 
 
-// --- NEW: API Endpoints for Token Management (for 3rd party subscription manager) ---
+// --- Rate Limiting Configuration ---
+const apiLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 100, // Limit each IP to 100 requests per windowMs
+    message: 'Too many requests from this IP, please try again after 15 minutes.',
+    statusCode: 429, // 429 Too Many Requests
+    // Optional: keyGenerator can be used to limit by API key if req.user is populated
+    // keyGenerator: (req) => {
+    //     return req.user ? req.user.apiKey : req.ip; // Limit by API key if authenticated, else by IP
+    // },
+    // Optional: handler to customize response for rate-limited requests
+    handler: (req, res, next) => {
+        console.warn(`WARNING: Rate limit exceeded for IP: ${req.ip} (URL: ${req.originalUrl})`);
+        res.status(apiLimiter.statusCode).send(apiLimiter.message);
+    }
+});
+// --- END Rate Limiting Configuration ---
+
+
+// --- API Endpoints for Token Management (for 3rd party subscription manager) ---
 
 // Middleware to protect API management endpoints
 const adminAuthMiddleware = (req, res, next) => {
@@ -247,25 +267,6 @@ app.post('/api/update-subscription-status', adminAuthMiddleware, async (req, res
     }
 });
 // --- END API Endpoints for Token Management ---
-
-
-// --- NEW: Rate Limiting Configuration ---
-const apiLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 100, // Limit each IP to 100 requests per windowMs
-    message: 'Too many requests from this IP, please try again after 15 minutes.',
-    statusCode: 429, // 429 Too Many Requests
-    // Optional: keyGenerator can be used to limit by API key if req.user is populated
-    // keyGenerator: (req) => {
-    //     return req.user ? req.user.apiKey : req.ip; // Limit by API key if authenticated, else by IP
-    // },
-    // Optional: handler to customize response for rate-limited requests
-    handler: (req, res, next) => {
-        console.warn(`WARNING: Rate limit exceeded for IP: ${req.ip} (URL: ${req.originalUrl})`);
-        res.status(apiLimiter.statusCode).send(apiLimiter.message);
-    }
-});
-// --- END Rate Limiting Configuration ---
 
 
 // Define a list of file extensions that are NOT allowed to be proxied
@@ -375,15 +376,14 @@ const apiProxy = createProxyMiddleware({
                     return;
                 }
 
-                // NEW: Use PUBLIC_PROXY_HOST for rewriting localhost URLs
-                const publicProxyHost = process.env.PUBLIC_PROXY_HOST; // e.g., 'https://your-alb-domain.com'
-                if (!publicProxyHost) {
-                    console.error('ERROR: PUBLIC_PROXY_HOST environment variable is not set. URL rewriting may be incorrect.');
-                }
+                // Determine the public proxy host for URL rewriting based on request protocol and host
+                const requestProtocol = req.protocol || (req.socket.encrypted ? 'https' : 'http');
+                const requestHost = req.headers.host;
+                const publicProxyHostForRewrite = `${requestProtocol}://${requestHost}`;
+
                 // Perform the replacement for http://localhost/ or http://localhost:PORT/
-                // Replace with the PUBLIC_PROXY_HOST (which should include https:// and the domain)
                 const localhostRegex = /(https?:\/\/localhost(:\d+)?)(?=\/|$|['";\s])/g;
-                const rewrittenBody = decodedBody.replace(localhostRegex, publicProxyHost || `http://${req.headers.host}`); // Fallback to req.headers.host if PUBLIC_PROXY_HOST is not set
+                const rewrittenBody = decodedBody.replace(localhostRegex, publicProxyHostForRewrite);
 
                 let reencodedBody;
                 // Re-compress if original was compressed
@@ -437,16 +437,14 @@ const apiProxy = createProxyMiddleware({
             let location = proxyRes.headers.location;
             console.log(`DEBUG: Original redirect Location header: ${location}`);
 
-            // NEW: If the redirect location points to localhost, rewrite it to use PUBLIC_PROXY_HOST
+            // If the redirect location points to localhost, rewrite it to use the dynamically determined public proxy host
             if (location.startsWith('http://localhost')) {
-                const publicProxyHost = process.env.PUBLIC_PROXY_HOST;
-                if (publicProxyHost) {
-                    location = location.replace(/^http:\/\/localhost(:\d+)?/, publicProxyHost);
-                    console.log(`DEBUG: Rewriting redirect Location header to: ${location}`);
-                    proxyRes.headers.location = location;
-                } else {
-                    console.warn('WARNING: PUBLIC_PROXY_HOST not set. Could not rewrite localhost redirect.');
-                }
+                const requestProtocol = req.protocol || (req.socket.encrypted ? 'https' : 'http');
+                const requestHost = req.headers.host;
+                const publicProxyHostForRewrite = `${requestProtocol}://${requestHost}`;
+                location = location.replace(/^http:\/\/localhost(:\d+)?/, publicProxyHostForRewrite);
+                console.log(`DEBUG: Rewriting redirect Location header to: ${location}`);
+                proxyRes.headers.location = location;
             }
         }
     },
@@ -459,8 +457,7 @@ const apiProxy = createProxyMiddleware({
 // --- APPLY PAYWALL MIDDLEWARE BEFORE THE PROXY ---
 app.use(paywallMiddleware);
 
-// --- NEW: Apply Rate Limiting to all requests that pass the paywall ---
-// This middleware comes after the paywall, but before the proxy.
+// --- Apply Rate Limiting to all requests that pass the paywall ---
 app.use(apiLimiter);
 
 // Use the proxy middleware for all requests starting with '/' (root path)
@@ -468,11 +465,15 @@ app.use('/', apiProxy);
 
 // Basic route for the root URL to show that the proxy is running
 app.get('/', (req, res) => {
+    const currentProtocol = req.protocol || (req.socket.encrypted ? 'https' : 'http');
+    const currentHost = req.headers.host;
+    const currentUrlBase = `${currentProtocol}://${currentHost}`;
+
     res.send(`
-        <h1>Node.js Proxy Server with Database-backed Paywall & Rate Limiting (ECS Ready)</h1>
+        <h1>Node.js HTTPS Proxy Server with Database-backed Paywall & Rate Limiting (Local Deployment)</h1>
         <p>This server is proxying all requests from <code>/</code> to <code>${TARGET_URL}</code>.</p>
-        <p>This container is designed to run behind an AWS Application Load Balancer (ALB) which handles HTTPS.</p>
-        <p>The container itself listens on HTTP port ${PORT}.</p>
+        <p><strong>IMPORTANT:</strong> You must access this via HTTPS (e.g., <a href="https://localhost:${PORT}/">https://localhost:${PORT}/</a>).</p>
+        <p>Since this is a self-signed certificate, your browser will show a security warning. You need to proceed past it.</p>
         <p>To gain access, provide a valid API key once. A cookie will then remember your authentication.</p>
         <h2>Admin API Endpoints (for 3rd Party Subscription Manager)</h2>
         <p>These endpoints require the <code>X-Admin-Secret</code> header or <code>adminSecret</code> query parameter.</p>
@@ -481,19 +482,19 @@ app.get('/', (req, res) => {
         <pre><code>curl.exe -k -X POST -H "Content-Type: application/json" ^
 -H "X-Admin-Secret: ${ADMIN_SECRET_KEY}" ^
 -d "{\"userIdentifier\": \"testuser@example.com\", \"subscriptionStatus\": \"active\"}" ^
-https://localhost:${PORT}/api/generate-token</code></pre>
+${currentUrlBase}/api/generate-token</code></pre>
 
         <h3>Update Subscription Status: <code>POST /api/update-subscription-status</code></h3>
         <p><strong>Example curl (Windows):</strong></p>
         <pre><code>curl.exe -k -X POST -H "Content-Type: application/json" ^
 -H "X-Admin-Secret: ${ADMIN_SECRET_KEY}" ^
 -d "{\"userIdentifier\": \"testuser@example.com\", \"subscriptionStatus\": \"inactive\"}" ^
-https://localhost:${PORT}/api/update-subscription-status</code></pre>
+${currentUrlBase}/api/update-subscription-status</code></pre>
 
         <h2>User Access</h2>
-        <p>1. Try visiting: <a href="http://localhost:${PORT}/">http://localhost:${PORT}/</a> (will be Unauthorized if not behind ALB)</p>
-        <p>2. Get authorized (sets cookie): <a href="http://localhost:${PORT}/?apiKey=YOUR_GENERATED_API_KEY">http://localhost:${PORT}/?apiKey=YOUR_GENERATED_API_KEY</a></p>
-        <p>3. After step 2, try visiting: <a href="http://localhost:${PORT}/">http://localhost:${PORT}/</a> again (should now be authorized by cookie)</p>
+        <p>1. Try visiting: <a href="${currentUrlBase}/">${currentUrlBase}/</a> (will be Unauthorized)</p>
+        <p>2. Get authorized (sets cookie): <a href="${currentUrlBase}/?apiKey=YOUR_GENERATED_API_KEY">${currentUrlBase}/?apiKey=YOUR_GENERATED_API_KEY</a></p>
+        <p>3. After step 2, try visiting: <a href="${currentUrlBase}/">${currentUrlBase}/</a> again (should now be authorized by cookie)</p>
         <p>Or use a header for initial authorization: <code>Authorization: Bearer YOUR_GENERATED_API_KEY</code></p>
         <p>The proxy is listening on port ${PORT}.</p>
     `);

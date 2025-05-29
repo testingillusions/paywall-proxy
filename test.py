@@ -7,7 +7,7 @@ import os
 # # Configuration - REPLACE WITH YOUR ACTUAL VALUES           #
 # ###############################################################
 PROXY_URL = "https://localhost"
-ADMIN_SECRET_KEY = "upgV6j6vTXRcPa868mJ6r9KiERJxtXi6GQTskg9NNM3vec7yH7h7J6QcyA5ieAoD"  # <--- REPLACE THIS WITH YOUR ACTUAL ADMIN SECRET KEY!
+ADMIN_SECRET_KEY = "admin-secret-for-subscription-manager"  # <--- REPLACE THIS WITH YOUR ACTUAL ADMIN SECRET KEY!
 TEST_USER_IDENTIFIER = "automated_test_user@example.com"
 
 # Global variable to store the generated API key
