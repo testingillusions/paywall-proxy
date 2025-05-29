@@ -1,0 +1,34 @@
+[Unit]
+Description=Node.js Paywall Proxy Application
+After=network.target mysql.service # Ensure network and MySQL are up before starting
+
+[Service]
+Environment=PORT={{ node_port }}
+Environment=DB_HOST={{ db_host }}
+Environment=DB_USER={{ db_user }}
+Environment=DB_PASSWORD={{ db_password }}
+Environment=DB_NAME={{ db_name }}
+Environment=JWT_SECRET={{ jwt_secret }}
+Environment=ADMIN_SECRET_KEY={{ admin_secret_key }}
+# PUBLIC_PROXY_HOST is needed for URL rewriting in responses.
+# For local deployment, it might be https://localhost.
+# For cloud deployments, this would be the ALB's public URL.
+{% if public_proxy_host is defined %}
+Environment=PUBLIC_PROXY_HOST={{ public_proxy_host }}
+{% endif %}
+# TLS_KEY_PATH and TLS_CERT_PATH are used by proxy.js if set.
+# For this local deployment, certs are copied to app_dir.
+Environment=TLS_KEY_PATH={{ app_dir }}/key.pem
+Environment=TLS_CERT_PATH={{ app_dir }}/cert.pem
+Environment=USE_HTTPS=true # Explicitly tell proxy.js to use HTTPS if PORT is 443
+
+WorkingDirectory={{ app_dir }}
+ExecStart=/usr/bin/node proxy.js
+Restart=always
+User=root # Or a dedicated non-root user (e.g., 'paywalluser' after creating it)
+Group=root # Or a dedicated group
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

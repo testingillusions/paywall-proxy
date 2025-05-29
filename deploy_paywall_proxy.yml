@@ -1,0 +1,102 @@
+---
+- name: Deploy Node.js Paywall Proxy Application
+  hosts: your_target_server_group # <--- IMPORTANT: Replace with your inventory group/host
+  become: yes # Run tasks with root privileges
+
+  # Define variables. For production, sensitive variables should be in Ansible Vault.
+  vars:
+    app_dir: /opt/paywall-proxy
+    node_port: 443 # Or 80 if behind an ALB that handles HTTPS
+    target_url: http://tba.uglyyellowbunny.com/
+
+    # --- Database Credentials (Highly recommend using Ansible Vault for these!) ---
+    db_host: your_rds_endpoint_or_localhost # e.g., localhost or your_rds_endpoint
+    db_user: root # e.g., admin
+    db_password: password # Your actual MySQL/MariaDB password
+    db_name: paywall_db
+
+    # --- Application Secrets (Highly recommend using Ansible Vault for these!) ---
+    jwt_secret: your-very-strong-jwt-secret-key-change-this-in-production
+    admin_secret_key: admin-secret-for-subscription-manager
+    # PUBLIC_PROXY_HOST is typically set by the Load Balancer/ECS config in cloud deployments,
+    # but for local testing, you might leave it unset or set it to https://localhost
+    # public_proxy_host: https://localhost # Uncomment and set if needed for local testing
+
+  tasks:
+    - name: Update apt cache (Debian/Ubuntu)
+      apt:
+        update_cache: yes
+      when: ansible_os_family == "Debian"
+
+    - name: Install system dependencies (Debian/Ubuntu)
+      apt:
+        name:
+          - nodejs
+          - npm
+          - openssl
+          - build-essential # Required for node-gyp, which mysql2 might use
+          - libmysqlclient-dev # MySQL client development files for mysql2 package
+        state: present
+      when: ansible_os_family == "Debian"
+
+    - name: Install system dependencies (RHEL/CentOS/Fedora)
+      yum:
+        name:
+          - nodejs
+          - npm
+          - openssl
+          - gcc-c++ # Required for node-gyp
+          - make
+          - libtool
+          - mysql-devel # MySQL client development files for mysql2 package
+        state: present
+      when: ansible_os_family == "RedHat"
+
+    - name: Create application directory
+      file:
+        path: "{{ app_dir }}"
+        state: directory
+        owner: root # Or a dedicated app user
+        group: root
+        mode: '0755'
+
+    - name: Copy application files
+      copy:
+        src: "{{ item }}"
+        dest: "{{ app_dir }}/{{ item }}"
+        owner: root # Or a dedicated app user
+        group: root
+        mode: '0644'
+      loop:
+        - proxy.js
+        - package.json
+        - package-lock.json
+        - key.pem # Self-signed private key for local HTTPS
+        - cert.pem # Self-signed certificate for local HTTPS
+
+    - name: Install Node.js dependencies
+      npm:
+        path: "{{ app_dir }}"
+        production: yes # Install only production dependencies
+
+    - name: Create systemd service file
+      template:
+        src: paywall-proxy.service.j2 # Template file for systemd service
+        dest: /etc/systemd/system/paywall-proxy.service
+        owner: root
+        group: root
+        mode: '0644'
+      notify: Restart paywall-proxy service
+
+    - name: Enable and start paywall-proxy service
+      systemd:
+        name: paywall-proxy
+        daemon_reload: yes
+        state: started
+        enabled: yes
+
+  handlers:
+    - name: Restart paywall-proxy service
+      systemd:
+        name: paywall-proxy
+        state: restarted
