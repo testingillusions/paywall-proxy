@@ -1,0 +1,11 @@
+# Change this as necessary for your own project(s)
+Containerfile*
+README.md
+dist
+node_modules
+test
+*.log
+.dockerignore
+.taprc
+.npmrc
+.env*

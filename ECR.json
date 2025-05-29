@@ -1,0 +1,44 @@
+{
+  "family": "paywall-proxy-task",
+  "networkMode": "awsvpc",
+  "cpu": "256",
+  "memory": "512",
+  "executionRoleArn": "arn:aws:iam::<aws_account_id>:role/ecsTaskExecutionRole",
+  "containerDefinitions": [
+    {
+      "name": "paywall-proxy",
+      "image": "<aws_account_id>.dkr.ecr.<region>.amazonaws.com/paywall-proxy:latest",
+      "portMappings": [
+        {
+          "containerPort": 80,
+          "hostPort": 80,
+          "protocol": "tcp"
+        }
+      ],
+      "environment": [
+        { "name": "PORT", "value": "80" },
+        { "name": "PUBLIC_PROXY_HOST", "value": "https://your-alb-domain.com" } # NEW: Your actual public ALB domain
+        # Other non-sensitive environment variables can go here
+      ],
+      "secrets": [
+        { "name": "DB_HOST", "valueFrom": "arn:aws:secretsmanager:<region>:<aws_account_id>:secret:my-db-host-secret-xxxx" },
+        { "name": "DB_USER", "valueFrom": "arn:aws:secretsmanager:<region>:<aws_account_id>:secret:my-db-user-secret-xxxx" },
+        { "name": "DB_PASSWORD", "valueFrom": "arn:aws:secretsmanager:<region>:<aws_account_id>:secret:my-db-password-secret-xxxx" },
+        { "name": "DB_NAME", "valueFrom": "arn:aws:secretsmanager:<region>:<aws_account_id>:secret:my-db-name-secret-xxxx" },
+        { "name": "JWT_SECRET", "valueFrom": "arn:aws:secretsmanager:<region>:<aws_account_id>:secret:my-jwt-secret-xxxx" },
+        { "name": "ADMIN_SECRET_KEY", "valueFrom": "arn:aws:secretsmanager:<region>:<aws_account_id>:secret:my-admin-secret-xxxx" }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/paywall-proxy",
+          "awslogs-region": "<region>",
+          "awslogs-stream-prefix": "ecs"
+        }
+      }
+    }
+  ],
+  "requiresCompatibilities": ["FARGATE"],
+  "placementConstraints": [],
+  "volumes": []
+}
