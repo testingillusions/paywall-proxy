@@ -28,7 +28,8 @@ app.use((req, res, next) => {
 const PORT = process.env.PORT || 443; // Default to 443 for HTTPS local testing
 
 // Define the target URL to which requests will be proxied.
-const TARGET_URL = 'http://tba.uglyyellowbunny.com/';
+// Can be overridden by TARGET_URL environment variable.
+const TARGET_URL = process.env.TARGET_URL || 'http://tba.uglyyellowbunny.com/';
 
 // --- HTTPS Certificate Credentials ---
 // For local deployment, these files (key.pem, cert.pem) should be in the same directory.
@@ -58,8 +59,6 @@ const dbConfig = {
     password: process.env.DB_PASSWORD || 'password', // Use environment variable or default
     database: process.env.DB_NAME || 'paywall_db' // Use environment variable or default
 };
-
-console.info(dbConfig);
 
 let pool; // Connection pool for MySQL
 
@@ -296,14 +295,14 @@ const apiProxy = createProxyMiddleware({
         const shouldAddFormatRaw = pathsToFormatRaw.some(segment => path.startsWith(segment));
 
         if (shouldAddFormatRaw) {
-            let newPath = path;
+                            let newPath = path;
             // Check if there are existing query parameters
             if (path.includes('?')) {
                 newPath += '&format=raw'; // Append with & if query params exist
             } else {
                 newPath += '?format=raw'; // Append with ? if no query params
             }
-            console.log(`DEBUG: Rewriting path for moo.tools file: ${path} -> ${newPath}`);
+            console.log(`DEBUG: Rewriting path for moo.tools file: ${newPath}`);
             return newPath;
         }
         // For all other paths, return the path as is (with the leading '/')
