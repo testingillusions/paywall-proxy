@@ -14,6 +14,14 @@ const mysql = require('mysql2/promise'); // Import mysql2 for database connectio
 const crypto = require('crypto'); // For generating random API keys
 const rateLimit = require('express-rate-limit'); // Import express-rate-limit
 
+//Add in Health Check path for Amazon Load Balancing
+const appHealth = express()
+const port = 3002
+
+appHealth.get('/healthcheck', (req, res) => res.send('Hello World!'))
+appHealth.listen(port, () => console.log(`Example app listening on port ${port}!`));
+
+
 // Initialize the Express application
 const app = express();
 app.use(express.json()); // Enable parsing of JSON request bodies for API endpoints
