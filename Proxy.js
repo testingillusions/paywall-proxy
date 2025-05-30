@@ -1,3 +1,6 @@
+// NEW: Load environment variables from .env file
+require('dotenv').config();
+
 // Import necessary modules
 const express = require('express'); // Express.js for creating the server
 const { createProxyMiddleware } = require('http-proxy-middleware'); // Middleware for proxying requests
@@ -25,17 +28,19 @@ app.use((req, res, next) => {
 });
 
 // Define the port on which the proxy server will listen
-const PORT = process.env.PORT || 443; // Default to 443 for HTTPS local testing
+// Read from .env, fallback to 443
+const PORT = process.env.PORT || 443;
 
 // Define the target URL to which requests will be proxied.
-// Can be overridden by TARGET_URL environment variable.
+// Read from .env, fallback to default
 const TARGET_URL = process.env.TARGET_URL || 'http://tba.uglyyellowbunny.com/';
 
 // --- HTTPS Certificate Credentials ---
 // For local deployment, these files (key.pem, cert.pem) should be in the same directory.
 // Environment variables TLS_KEY_PATH and TLS_CERT_PATH are for container deployments.
 let credentials = null;
-if (PORT === 443 || process.env.USE_HTTPS === 'true') { // Only load if HTTPS is intended
+// Use USE_HTTPS env var to explicitly enable HTTPS, or if PORT is 443
+if (process.env.USE_HTTPS === 'true' || PORT === 443) {
     try {
         const privateKey = fs.readFileSync(process.env.TLS_KEY_PATH || 'key.pem', 'utf8');
         const certificate = fs.readFileSync(process.env.TLS_CERT_PATH || 'cert.pem', 'utf8');
@@ -54,11 +59,18 @@ if (PORT === 443 || process.env.USE_HTTPS === 'true') { // Only load if HTTPS is
 
 // --- MySQL Database Configuration ---
 const dbConfig = {
-    host: process.env.DB_HOST || 'localhost', // Use environment variable or default
-    user: process.env.DB_USER || 'root',      // Use environment variable or default
-    password: process.env.DB_PASSWORD || 'password', // Use environment variable or default
-    database: process.env.DB_NAME || 'paywall_db' // Use environment variable or default
+    host: process.env.DB_HOST, // Read from .env
+    user: process.env.DB_USER, // Read from .env
+    password: process.env.DB_PASSWORD, // Read from .env
+    database: process.env.DB_NAME // Read from .env
 };
+
+// Basic validation for DB config
+if (!dbConfig.host || !dbConfig.user || !dbConfig.password || !dbConfig.database) {
+    console.error('FATAL ERROR: Missing one or more required database environment variables (DB_HOST, DB_USER, DB_PASSWORD, DB_NAME). Please check your .env file.');
+    process.exit(1);
+}
+
 
 let pool; // Connection pool for MySQL
 
@@ -81,9 +93,15 @@ initializeDatabase();
 
 
 // --- PAYWALL CONFIGURATION ---
-const JWT_SECRET = process.env.JWT_SECRET || 'your-very-strong-jwt-secret-key-change-this-in-production'; // Secret for signing JWTs
-const AUTH_COOKIE_NAME = 'auth_token'; // Name of the authentication cookie
-const ADMIN_SECRET_KEY = process.env.ADMIN_SECRET_KEY || 'admin-secret-for-subscription-manager'; // Secret for API management endpoints
+const JWT_SECRET = process.env.JWT_SECRET; // Read from .env
+const AUTH_COOKIE_NAME = 'auth_token';
+const ADMIN_SECRET_KEY = process.env.ADMIN_SECRET_KEY; // Read from .env
+
+// Basic validation for app secrets
+if (!JWT_SECRET || !ADMIN_SECRET_KEY) {
+    console.error('FATAL ERROR: Missing one or more required application secret environment variables (JWT_SECRET, ADMIN_SECRET_KEY). Please check your .env file.');
+    process.exit(1);
+}
 
 // Paywall Middleware
 const paywallMiddleware = async (req, res, next) => { // Made async to use await for DB queries
@@ -464,9 +482,8 @@ app.use('/', apiProxy);
 
 // Basic route for the root URL to show that the proxy is running
 app.get('/', (req, res) => {
-    const currentProtocol = req.protocol || (req.socket.encrypted ? 'https' : 'http');
-    const currentHost = req.headers.host;
-    const currentUrlBase = `${currentProtocol}://${currentHost}`;
+    // NEW: Use APP_BASE_URL from environment, fallback to dynamic request host
+    const currentUrlBase = process.env.APP_BASE_URL || `${req.protocol || (req.socket.encrypted ? 'https' : 'http')}://${req.headers.host}`;
 
     res.send(`
         <h1>Node.js HTTPS Proxy Server with Database-backed Paywall & Rate Limiting (Local Deployment)</h1>
