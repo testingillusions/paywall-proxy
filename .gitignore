@@ -1,3 +1,4 @@
 *.pem
 Admin Token.txt
 details.md
+.env
