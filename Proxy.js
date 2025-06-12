@@ -30,6 +30,27 @@ appHealth.listen(port, () => console.log(`Example app listening on port ${port}!
 const app = express();
 app.use(express.json()); // Enable parsing of JSON request bodies for API endpoints
 
+
+app.use((req, res, next) => {
+    const origin = req.headers.origin;
+
+    // Update this if supporting multiple origins
+    const allowedOrigin = 'https://testingillusions.com';
+
+    if (origin === allowedOrigin) {
+        res.header('Access-Control-Allow-Origin', allowedOrigin);
+        res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+        res.header('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+        res.header('Access-Control-Allow-Credentials', 'true');
+    }
+
+    if (req.method === 'OPTIONS') {
+        return res.sendStatus(200);
+    }
+
+    next();
+});
+
 // --- Use cookie-parser middleware ---
 app.use(cookieParser());
 
@@ -559,32 +580,6 @@ const apiProxy = createProxyMiddleware({
 
 // --- APPLY PAYWALL MIDDLEWARE BEFORE THE PROXY ---
 app.use(paywallMiddleware);
-
-// --- Apply Rate Limiting to all requests that pass the paywall ---
-app.use(apiLimiter);
-
-// --- CORS Middleware ---
-app.use((req, res, next) => {
-    const origin = req.headers.origin;
-
-    // Adjust allowed origins here or dynamically verify
-    const allowedOrigin = 'https://testingillusions.com';
-
-    if (origin === allowedOrigin) {
-        res.header("Access-Control-Allow-Origin", allowedOrigin);
-        res.header("Access-Control-Allow-Credentials", "true");
-        res.header("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
-        res.header("Access-Control-Allow-Headers", "Authorization,Content-Type");
-    }
-
-    // Respond to preflight requests
-    if (req.method === 'OPTIONS') {
-        return res.sendStatus(200);
-    }
-
-    next();
-});
-
 
 // Use the proxy middleware for all requests starting with '/' (root path)
 app.use('/', apiProxy);
