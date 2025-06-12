@@ -14,6 +14,10 @@ const mysql = require('mysql2/promise'); // Import mysql2 for database connectio
 const crypto = require('crypto'); // For generating random API keys
 const rateLimit = require('express-rate-limit'); // Import express-rate-limit
 
+
+const launchTokens = {}; // token -> { apiKey, expires }
+
+
 //Add in Health Check path for Amazon Load Balancing
 const appHealth = express()
 const port = 3002
@@ -301,6 +305,80 @@ const DISALLOWED_EXTENSIONS = [
     '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.xlsm', '.ppt', '.pptx' // Common document types (example)
 ];
 
+
+
+app.get('/api/create-launch-token', async (req, res) => {
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(401).send('Authorization header missing or malformed');
+    }
+
+    const apiKey = authHeader.split(' ')[1];
+
+    try {
+        const [rows] = await pool.query('SELECT user_identifier, subscription_status FROM users WHERE api_key = ?', [apiKey]);
+
+        if (rows.length === 0 || rows[0].subscription_status !== 'active') {
+            return res.status(401).send('Invalid or inactive API key.');
+        }
+
+        const token = crypto.randomBytes(24).toString('hex');
+        const expires = Date.now() + 60000; // valid for 1 min
+
+        launchTokens[token] = { apiKey, expires };
+        const launchUrl = `https://tba.testingillusions.com/auth-launch?token=${token}`;
+
+        res.json({ launch_url: launchUrl });
+    } catch (err) {
+        console.error('Launch token generation failed:', err);
+        res.status(500).send('Server error');
+    }
+});
+
+app.get('/auth-launch', async (req, res) => {
+    const token = req.query.token;
+
+    if (!token || !launchTokens[token]) {
+        return res.status(403).send('Invalid or missing launch token.');
+    }
+
+    const { apiKey, expires } = launchTokens[token];
+
+    if (Date.now() > expires) {
+        delete launchTokens[token];
+        return res.status(403).send('Launch token expired.');
+    }
+
+    // Token is valid
+    delete launchTokens[token];
+
+    try {
+        const [rows] = await pool.query('SELECT user_identifier FROM users WHERE api_key = ?', [apiKey]);
+
+        if (rows.length === 0) {
+            return res.status(403).send('User not found.');
+        }
+
+        const jwtToken = jwt.sign(
+            { authenticated: true, api_key: apiKey, user: rows[0].user_identifier },
+            JWT_SECRET,
+            { expiresIn: '1h' }
+        );
+
+        res.cookie(AUTH_COOKIE_NAME, jwtToken, {
+            httpOnly: true,
+            secure: true,
+            sameSite: 'Lax'
+        });
+
+        return res.redirect('/');
+    } catch (err) {
+        console.error('Auth-launch DB error:', err);
+        res.status(500).send('Server error');
+    }
+});
+
 // Configure the proxy middleware
 const apiProxy = createProxyMiddleware({
     target: TARGET_URL, // The target URL for the proxy
@@ -484,6 +562,29 @@ app.use(paywallMiddleware);
 
 // --- Apply Rate Limiting to all requests that pass the paywall ---
 app.use(apiLimiter);
+
+// --- CORS Middleware ---
+app.use((req, res, next) => {
+    const origin = req.headers.origin;
+
+    // Adjust allowed origins here or dynamically verify
+    const allowedOrigin = 'https://testingillusions.com';
+
+    if (origin === allowedOrigin) {
+        res.header("Access-Control-Allow-Origin", allowedOrigin);
+        res.header("Access-Control-Allow-Credentials", "true");
+        res.header("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+        res.header("Access-Control-Allow-Headers", "Authorization,Content-Type");
+    }
+
+    // Respond to preflight requests
+    if (req.method === 'OPTIONS') {
+        return res.sendStatus(200);
+    }
+
+    next();
+});
+
 
 // Use the proxy middleware for all requests starting with '/' (root path)
 app.use('/', apiProxy);
