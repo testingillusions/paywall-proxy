@@ -387,7 +387,7 @@ app.get('/api/create-launch-token', async (req, res) => {
 
         launchTokens[token] = { apiKey, expires };
 
-        const launchUrl = APP_BASE_URL + `/auth-launch?token=${token}`;
+        const launchUrl =  process.env.APP_BASE_URL + `/auth-launch?token=${token}`;
 
         res.json({ launch_url: launchUrl });
     } catch (err) {
