@@ -1,3 +1,7 @@
+
+// =========================================
+// Load Environment Variables and Modules
+// =========================================
 // NEW: Load environment variables from .env file
 require('dotenv').config();
 
@@ -15,6 +19,8 @@ const crypto = require('crypto'); // For generating random API keys
 const rateLimit = require('express-rate-limit'); // Import express-rate-limit
 
 
+// In memory implementation for storing launch keys. 
+// NOTE: This will need to be updated if scaling the proxy is necessary. 
 const launchTokens = {}; // token -> { apiKey, expires }
 
 
@@ -26,6 +32,10 @@ appHealth.get('/healthcheck', (req, res) => res.send('Hello World!'))
 appHealth.listen(port, () => console.log(`Example app listening on port ${port}!`));
 
 
+
+// =========================================
+// Initialize Express Application
+// =========================================
 // Initialize the Express application
 const app = express();
 app.use(express.json()); // Enable parsing of JSON request bodies for API endpoints
@@ -60,6 +70,10 @@ app.use((req, res, next) => {
     next(); // Pass the request to the next middleware (which is our proxy)
 });
 
+
+// =========================================
+// Server Port and Target Configuration
+// =========================================
 // Define the port on which the proxy server will listen
 // Read from .env, fallback to 443
 const PORT = process.env.PORT || 443;
@@ -68,6 +82,10 @@ const PORT = process.env.PORT || 443;
 // Read from .env, fallback to default
 const TARGET_URL = process.env.TARGET_URL || 'http://tba.uglyyellowbunny.com/';
 
+
+// =========================================
+// HTTPS Certificate Loading and Validation
+// =========================================
 // --- HTTPS Certificate Credentials ---
 // For local deployment, these files (key.pem, cert.pem) should be in the same directory.
 // Environment variables TLS_KEY_PATH and TLS_CERT_PATH are for container deployments.
@@ -90,6 +108,10 @@ if (process.env.USE_HTTPS === 'true' || PORT === 443) {
 // --- END HTTPS Certificate Credentials ---
 
 
+
+// =========================================
+// MySQL Database Initialization and Validation
+// =========================================
 // --- MySQL Database Configuration ---
 const dbConfig = {
     host: process.env.DB_HOST, // Read from .env
@@ -125,6 +147,10 @@ initializeDatabase();
 // --- END MySQL Database Configuration ---
 
 
+
+// =========================================
+// API Key / Cookie-based Paywall Middleware
+// =========================================
 // --- PAYWALL CONFIGURATION ---
 const JWT_SECRET = process.env.JWT_SECRET; // Read from .env
 const AUTH_COOKIE_NAME = 'auth_token';
@@ -231,6 +257,10 @@ const paywallMiddleware = async (req, res, next) => { // Made async to use await
 // --- END PAYWALL CONFIGURATION ---
 
 
+
+// =========================================
+// Express Rate Limiter to Prevent Abuse
+// =========================================
 // --- Rate Limiting Configuration ---
 const apiLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
@@ -250,6 +280,10 @@ const apiLimiter = rateLimit({
 // --- END Rate Limiting Configuration ---
 
 
+
+// =========================================
+// Admin API Endpoints for Token Management
+// =========================================
 // --- API Endpoints for Token Management (for 3rd party subscription manager) ---
 
 // Middleware to protect API management endpoints
@@ -327,6 +361,10 @@ const DISALLOWED_EXTENSIONS = [
 ];
 
 
+// The following endpoints are used by 3rd Party App (Wordpress) to authenticate and redirect to the proxy site. 
+// This is a two step process.
+
+//Step 1: Creating a temporary token for use by the 3rd Pary App. 
 
 app.get('/api/create-launch-token', async (req, res) => {
     const authHeader = req.headers.authorization;
@@ -348,7 +386,8 @@ app.get('/api/create-launch-token', async (req, res) => {
         const expires = Date.now() + 60000; // valid for 1 min
 
         launchTokens[token] = { apiKey, expires };
-        const launchUrl = `https://tba.testingillusions.com/auth-launch?token=${token}`;
+
+        const launchUrl = APP_BASE_URL + `/auth-launch?token=${token}`;
 
         res.json({ launch_url: launchUrl });
     } catch (err) {
@@ -357,6 +396,9 @@ app.get('/api/create-launch-token', async (req, res) => {
     }
 });
 
+// Step 2: Browser is launched, calling this app with the temporary token. This will validate the token, create the cookie, then 
+// redirect to the root to server up the proxy content. 
+
 app.get('/auth-launch', async (req, res) => {
     const token = req.query.token;
 
@@ -364,6 +406,7 @@ app.get('/auth-launch', async (req, res) => {
         return res.status(403).send('Invalid or missing launch token.');
     }
 
+    // NOTE: This will need to be changed if scaling is required. 
     const { apiKey, expires } = launchTokens[token];
 
     if (Date.now() > expires) {
@@ -400,6 +443,10 @@ app.get('/auth-launch', async (req, res) => {
     }
 });
 
+
+// =========================================
+// Proxy Middleware Configuration and Handlers
+// =========================================
 // Configure the proxy middleware
 const apiProxy = createProxyMiddleware({
     target: TARGET_URL, // The target URL for the proxy
@@ -578,6 +625,10 @@ const apiProxy = createProxyMiddleware({
     },
 });
 
+
+// =========================================
+// Attach Middleware and Start Proxy Server
+// =========================================
 // --- APPLY PAYWALL MIDDLEWARE BEFORE THE PROXY ---
 app.use(paywallMiddleware);
 
