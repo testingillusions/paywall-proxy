@@ -496,7 +496,6 @@ app.get('/login', (req, res) => {
     `);
 });
 
-
 app.post('/login', express.urlencoded({ extended: true }), async (req, res) => {
     const { email, password } = req.body;
 
@@ -543,7 +542,7 @@ app.post('/login', express.urlencoded({ extended: true }), async (req, res) => {
 // used to register an email/password in the database
 // Requires Admin Secret
 
-app.post('/api/register', adminAuthMiddleware, async (req, res) => {
+app.post('/api/register', express.urlencoded({ extended: true }), adminAuthMiddleware, async (req, res) => {
      const { email, password } = req.body;
 
     if (!email || !password) {
