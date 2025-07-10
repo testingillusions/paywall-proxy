@@ -17,7 +17,7 @@ const jwt = require('jsonwebtoken'); // Import jsonwebtoken
 const mysql = require('mysql2/promise'); // Import mysql2 for database connection
 const crypto = require('crypto'); // For generating random API keys
 const rateLimit = require('express-rate-limit'); // Import express-rate-limit
-
+const bcrypt = require('bcrypt'); //Import bcrypt for login screen 
 
 // In memory implementation for storing launch keys. 
 // NOTE: This will need to be updated if scaling the proxy is necessary. 
@@ -251,7 +251,7 @@ const paywallMiddleware = async (req, res, next) => { // Made async to use await
         }
     } else {
         console.warn(`WARNING: Access denied: No API Key or valid cookie provided.`);
-        res.status(401).send('Unauthorized: Valid API Key or authentication cookie required.');
+        res.redirect('/login');
     }
 };
 // --- END PAYWALL CONFIGURATION ---
@@ -443,6 +443,141 @@ app.get('/auth-launch', async (req, res) => {
     }
 });
 
+// Used to prompt user for a username and password.
+app.use('/images', express.static('public/images'));
+
+app.get('/login', (req, res) => {
+    res.send(`
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Login</title>
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+      rel="stylesheet"
+    >
+    <style>
+        body {
+            background-color: #f8f9fa;
+        }
+        .login-container {
+            max-width: 400px;
+            margin: 80px auto;
+            padding: 30px;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="login-container">
+            <img src="/images/tba_logo.png" alt="The Benefits Academy" class="logo">
+            <h2 class="text-center mb-4">Login</h2>
+            <form method="POST" action="/login">
+                <div class="mb-3">
+                    <label for="email" class="form-label">Email address</label>
+                    <input type="email" class="form-control" name="email" id="email" required>
+                </div>
+                <div class="mb-3">
+                    <label for="password" class="form-label">Password</label>
+                    <input type="password" class="form-control" name="password" id="password" required>
+                </div>
+                <div class="d-grid">
+                    <button type="submit" class="btn btn-primary">Sign In</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</body>
+</html>
+    `);
+});
+
+
+app.use(express.urlencoded({ extended: true })); // to handle form POSTs
+
+app.post('/login', async (req, res) => {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+        return res.status(400).send('Missing email or password.');
+    }
+
+    try {
+        const [rows] = await pool.query('SELECT api_key, user_identifier, subscription_status, password_hash FROM users WHERE email = ?', [email]);
+
+        if (rows.length === 0) {
+            return res.status(401).send('Invalid email or password.');
+        }
+
+        const user = rows[0];
+        const passwordMatch = await bcrypt.compare(password, user.password_hash);
+        if (!passwordMatch) {
+            return res.status(401).send('Invalid email or password.');
+        }
+
+        if (user.subscription_status !== 'active') {
+            return res.status(403).send('Your subscription is not active.');
+        }
+
+        const token = jwt.sign(
+            { authenticated: true, api_key: user.api_key, user: user.user_identifier },
+            JWT_SECRET,
+            { expiresIn: '1h' }
+        );
+
+        res.cookie(AUTH_COOKIE_NAME, token, {
+            httpOnly: true,
+            secure: true,
+            sameSite: 'Lax'
+        });
+
+        res.redirect('/'); // Redirect to root after successful login
+    } catch (err) {
+        console.error('Login error:', err);
+        res.status(500).send('Internal server error during login.');
+    }
+});
+
+// used to register an email/password in the database
+// Requires Admin Secret
+
+app.post('/api/register', adminAuthMiddleware, async (req, res) => {
+     const { email, password } = req.body;
+
+    if (!email || !password) {
+        return res.status(400).json({ error: 'Email and password are required.' });
+    }
+
+    try {
+        const passwordHash = await bcrypt.hash(password, 10);
+        const newApiKey = crypto.randomBytes(32).toString('hex');
+
+        // Use email as the user_identifier for legacy compatibility
+        await pool.query(
+            'INSERT INTO users (email, password_hash, user_identifier, api_key, subscription_status) VALUES (?, ?, ?, ?, ?)',
+            [email, passwordHash, email, newApiKey, 'active']
+        );
+
+        res.status(201).json({
+            message: 'User registered successfully.',
+            email,
+            apiKey: newApiKey,
+            subscriptionStatus: 'active'
+        });
+    } catch (err) {
+        console.error('Registration error:', err);
+        if (err.code === 'ER_DUP_ENTRY') {
+            res.status(409).json({ error: 'Email already registered.' });
+        } else {
+            res.status(500).json({ error: 'Server error during registration.' });
+        }
+    }
+});
+
 
 // =========================================
 // Proxy Middleware Configuration and Handlers
@@ -460,7 +595,8 @@ const apiProxy = createProxyMiddleware({
         // List of paths that should receive the '?format=raw' argument
         const pathsToFormatRaw = [
             '/assets/js/mootools-core-1.6.0.js',
-            '/assets/js/mootools-more-1.6.0-compressed.js'
+            '/assets/js/mootools-more-1.6.0-compressed.js',
+            'ajax.php'
         ];
 
         // Check if the path starts with any of the specific MooTools file paths
@@ -637,38 +773,7 @@ app.use('/', apiProxy);
 
 // Basic route for the root URL to show that the proxy is running
 app.get('/', (req, res) => {
-    // NEW: Use APP_BASE_URL from environment, fallback to dynamic request host
-    const currentUrlBase = process.env.APP_BASE_URL || `${req.protocol || (req.socket.encrypted ? 'https' : 'http')}://${req.headers.host}`;
 
-    res.send(`
-        <h1>Node.js HTTPS Proxy Server with Database-backed Paywall & Rate Limiting (Local Deployment)</h1>
-        <p>This server is proxying all requests from <code>/</code> to <code>${TARGET_URL}</code>.</p>
-        <p><strong>IMPORTANT:</strong> You must access this via HTTPS (e.g., <a href="https://localhost:${PORT}/">https://localhost:${PORT}/</a>).</p>
-        <p>Since this is a self-signed certificate, your browser will show a security warning. You need to proceed past it.</p>
-        <p>To gain access, provide a valid API key once. A cookie will then remember your authentication.</p>
-        <h2>Admin API Endpoints (for 3rd Party Subscription Manager)</h2>
-        <p>These endpoints require the <code>X-Admin-Secret</code> header or <code>adminSecret</code> query parameter.</p>
-        <h3>Generate/Update API Key: <code>POST /api/generate-token</code></h3>
-        <p><strong>Example curl (Windows):</strong></p>
-        <pre><code>curl.exe -k -X POST -H "Content-Type: application/json" ^
--H "X-Admin-Secret: ${ADMIN_SECRET_KEY}" ^
--d "{\"userIdentifier\": \"testuser@example.com\", \"subscriptionStatus\": \"active\"}" ^
-${currentUrlBase}/api/generate-token</code></pre>
-
-        <h3>Update Subscription Status: <code>POST /api/update-subscription-status</code></h3>
-        <p><strong>Example curl (Windows):</strong></p>
-        <pre><code>curl.exe -k -X POST -H "Content-Type: application/json" ^
--H "X-Admin-Secret: ${ADMIN_SECRET_KEY}" ^
--d "{\"userIdentifier\": \"testuser@example.com\", \"subscriptionStatus\": \"inactive\"}" ^
-${currentUrlBase}/api/update-subscription-status</code></pre>
-
-        <h2>User Access</h2>
-        <p>1. Try visiting: <a href="${currentUrlBase}/">${currentUrlBase}/</a> (will be Unauthorized)</p>
-        <p>2. Get authorized (sets cookie): <a href="${currentUrlBase}/?apiKey=YOUR_GENERATED_API_KEY">${currentUrlBase}/?apiKey=YOUR_GENERATED_API_KEY</a></p>
-        <p>3. After step 2, try visiting: <a href="${currentUrlBase}/">${currentUrlBase}/</a> again (should now be authorized by cookie)</p>
-        <p>Or use a header for initial authorization: <code>Authorization: Bearer YOUR_GENERATED_API_KEY</code></p>
-        <p>The proxy is listening on port ${PORT}.</p>
-    `);
 });
 
 // --- Server Creation (Conditional HTTP/HTTPS) ---

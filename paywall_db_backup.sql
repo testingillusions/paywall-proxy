@@ -33,10 +33,13 @@ DROP TABLE IF EXISTS `users`;
 CREATE TABLE `users` (
   `id` int NOT NULL AUTO_INCREMENT,
   `user_identifier` varchar(255) NOT NULL,
+  `email VARCHAR(255)` UNIQUE,
+  `password_hash` VARCHAR(255),
   `api_key` varchar(255) NOT NULL,
   `subscription_status` enum('active','inactive','trialing','canceled') DEFAULT 'inactive',
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
   PRIMARY KEY (`id`),
   UNIQUE KEY `user_identifier` (`user_identifier`),
   UNIQUE KEY `api_key` (`api_key`),
@@ -44,13 +47,16 @@ CREATE TABLE `users` (
 ) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
+ALTER TABLE users
+ADD COLUMN email VARCHAR(255) UNIQUE AFTER user_identifier,
+ADD COLUMN password_hash VARCHAR(255) AFTER email;
 --
 -- Dumping data for table `users`
 --
 
 LOCK TABLES `users` WRITE;
 /*!40000 ALTER TABLE `users` DISABLE KEYS */;
-INSERT INTO `users` VALUES (1,'testuser@example.com','0e89034b12d01dfba085d785caa647db76fb2840b2b5bfd8c0303b67b080517d','active','2025-05-30 14:12:45','2025-05-30 14:12:45');
+INSERT INTO `users` VALUES (1,'testuser@example.com','testuser@example.com','testing123','0e89034b12d01dfba085d785caa647db76fb2840b2b5bfd8c0303b67b080517d','active','2025-05-30 14:12:45','2025-05-30 14:12:45');
 /*!40000 ALTER TABLE `users` ENABLE KEYS */;
 UNLOCK TABLES;
 SET @@SESSION.SQL_LOG_BIN = @MYSQLDUMP_TEMP_LOG_BIN;
