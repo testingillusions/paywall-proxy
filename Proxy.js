@@ -423,7 +423,7 @@ app.get('/auth-launch', async (req, res) => {
         delete launchTokens[token];
     }
     else {
-        if(!req.headers.referer=="https://tba.vueocity.com/"){
+        if(!req.headers.referer || !req.headers.referer=="https://tba.vueocity.com/"){
             return res.status(403).send('Invalid or missing launch token.');
         }
         apiKey = tempKeyAPI;
