@@ -497,9 +497,7 @@ app.get('/login', (req, res) => {
 });
 
 
-//app.use(express.urlencoded({ extended: true })); // to handle form POSTs
-
-app.post('/login', async (req, res) => {
+app.post('/login', express.urlencoded({ extended: true }), async (req, res) => {
     const { email, password } = req.body;
 
     if (!email || !password) {
