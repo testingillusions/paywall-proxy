@@ -173,7 +173,8 @@ const paywallMiddleware = async (req, res, next) => { // Made async to use await
         '/images/',
         '/favicon.ico',
         '/api/generate-token', // Exclude API management endpoints
-        '/api/update-subscription-status'    // Exclude API management endpoints
+        '/api/update-subscription-status',    // Exclude API management endpoints
+        '/app/modules/tba/'
     ];
 
     // Check if the current request path starts with any of the excluded paths
@@ -458,8 +459,6 @@ app.get('/auth-launch', async (req, res) => {
 });
 
 // Used to prompt user for a username and password.
-app.use('/images', express.static('public/images'));
-
 app.get('/login', (req, res) => {
     res.send(`
 <!DOCTYPE html>
@@ -597,6 +596,10 @@ app.post('/api/register', express.urlencoded({ extended: true }), adminAuthMiddl
 const apiProxy = createProxyMiddleware({
     target: TARGET_URL, // The target URL for the proxy
     changeOrigin: true,  // Changes the origin of the host header to the target URL
+    headers: {
+    'TBA-PLAN-TIER': 'Tier1',
+    'VUE-AUTH':'AE8A774F-1DE0-4F98-B037-659645706A66'
+    },
     ws: true,            // Enables proxying of WebSockets
     logLevel: 'debug',   // Set log level to 'debug' for detailed logging in the console
     // Custom pathRewrite function to add '?format=raw' for specific requests
@@ -786,6 +789,8 @@ app.use('/', apiProxy);
 app.get('/', (req, res) => {
 
 });
+
+app.use('/images', express.static('public/images'));
 
 // --- Server Creation (Conditional HTTP/HTTPS) ---
 let server;
