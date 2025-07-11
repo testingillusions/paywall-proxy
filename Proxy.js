@@ -67,6 +67,7 @@ app.use(cookieParser());
 // --- Log all incoming Express requests ---
 app.use((req, res, next) => {
     console.log(`DEBUG: Express received request for: ${req.originalUrl}`);
+    console.log('DEBUG: Incoming request headers:\n', JSON.stringify(req.headers, null, 2));
     next(); // Pass the request to the next middleware (which is our proxy)
 });
 
