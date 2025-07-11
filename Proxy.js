@@ -40,6 +40,13 @@ appHealth.listen(port, () => console.log(`Example app listening on port ${port}!
 const app = express();
 app.use(express.json()); // Enable parsing of JSON request bodies for API endpoints
 
+// --- Log all incoming Express requests ---
+app.use((req, res, next) => {
+    console.log(`DEBUG: Express received request for: ${req.originalUrl}`);
+    console.log('DEBUG: Incoming request headers:\n', JSON.stringify(req.headers, null, 2));
+    next(); // Pass the request to the next middleware (which is our proxy)
+});
+
 
 app.use((req, res, next) => {
     const origin = req.headers.origin;
@@ -64,12 +71,6 @@ app.use((req, res, next) => {
 // --- Use cookie-parser middleware ---
 app.use(cookieParser());
 
-// --- Log all incoming Express requests ---
-app.use((req, res, next) => {
-    console.log(`DEBUG: Express received request for: ${req.originalUrl}`);
-    console.log('DEBUG: Incoming request headers:\n', JSON.stringify(req.headers, null, 2));
-    next(); // Pass the request to the next middleware (which is our proxy)
-});
 
 
 // =========================================
