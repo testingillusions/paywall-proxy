@@ -44,6 +44,38 @@ app.use(express.json()); // Enable parsing of JSON request bodies for API endpoi
 app.use((req, res, next) => {
     console.log(`DEBUG: Express received request for: ${req.originalUrl}`);
     console.log('DEBUG: Incoming request headers:\n', JSON.stringify(req.headers, null, 2));
+      console.log('--- Incoming Request ---');
+  // Basic request line
+  console.log('Method:       ', req.method);
+  console.log('Original URL: ', req.originalUrl);
+  console.log('Base URL:     ', req.baseUrl);
+  console.log('Path:         ', req.path);
+  console.log('Query params: ', req.query);
+  console.log('Route params: ', req.params);
+
+  // Headers & protocol
+  console.log('Host:         ', req.get('host'));
+  console.log('Protocol:     ', req.protocol);
+  console.log('Secure?       ', req.secure);
+  console.log('Subdomains:   ', req.subdomains);
+
+  // Body and cookies (after body-parsers and cookieParser have run)
+  console.log('Body:         ', req.body);
+  console.log('Cookies:      ', req.cookies);
+  console.log('SignedCookies:', req.signedCookies);
+
+  // Client/network info
+  console.log('IP:           ', req.ip);
+  console.log('IPs (if behind proxy):', req.ips);
+  console.log('Socket addr:  ', req.socket.remoteAddress);
+
+  // Convenience methods
+  console.log('Accepts JSON? ', req.is('application/json'));
+  console.log('Accepts HTML? ', req.accepts('html'));
+  console.log('XHR request?  ', req.xhr);
+
+  // Raw headers array
+  console.log('Raw headers:  ', req.rawHeaders);
     next(); // Pass the request to the next middleware (which is our proxy)
 });
 
