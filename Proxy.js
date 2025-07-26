@@ -39,6 +39,7 @@ appHealth.listen(port, () => console.log(`Example app listening on port ${port}!
 // Initialize the Express application
 const app = express();
 app.use(express.json()); // Enable parsing of JSON request bodies for API endpoints
+app.use('/images', express.static('public/images'));
 
 // --- Log all incoming Express requests ---
 app.use((req, res, next) => {
@@ -824,7 +825,7 @@ app.get('/', (req, res) => {
 
 });
 
-app.use('/images', express.static('public/images'));
+
 
 // --- Server Creation (Conditional HTTP/HTTPS) ---
 let server;
