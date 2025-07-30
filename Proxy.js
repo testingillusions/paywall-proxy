@@ -472,7 +472,7 @@ app.get('/auth-launch', async (req, res) => {
         else {
             const [rows] = await pool.query('SELECT user_identifier, subscription_status,api_key FROM users WHERE user_identifier = ?', [useremail]);
             if (rows.length === 0 || rows[0].subscription_status !== 'active') {
-                return res.status(401).send('Invalid or inactive Email key for ?', [useremail]);
+                return res.status(401).send('Invalid or inactive Email key for ' + [useremail]);
             }
             else {
                 apiKey = rows[0].api_key; // Use the API key from the database
