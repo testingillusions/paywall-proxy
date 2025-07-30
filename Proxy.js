@@ -461,8 +461,8 @@ app.get('/auth-launch', async (req, res) => {
         delete launchTokens[token];
     }
     else {
-        if(!req.headers.referer || !req.headers.referer=="https://tba.vueocity.com/"){
-            return res.status(403).send('Invalid or missing launch token.');
+	if(!req.headers['vue-auth'] || !req.headers['vue-auth']=="AE8A774F-1DE0-4F98-B037-659645706A66"){
+            return res.status(403).send('Invalid or missing launch token - NOT FROM VUE.');
         }
         apiKey = tempKeyAPI;
         console.log("WARNING: Using tempKey override from ", req.headers.referer);
