@@ -464,9 +464,23 @@ app.get('/auth-launch', async (req, res) => {
 	if(!req.headers['vue-auth'] || !req.headers['vue-auth']=="AE8A774F-1DE0-4F98-B037-659645706A66"){
             return res.status(403).send('Invalid or missing launch token - NOT FROM VUE.');
         }
-        apiKey = tempKeyAPI;
-        console.log("WARNING: Using tempKey override from ", req.headers.referer);
+        useremail = req.headers['vue-email']
+        
+        if (!useremail || useremail.length < 5) {
+            return res.status(403).send('Invalid or missing email.');
+        }
+        else {
+            const [rows] = await pool.query('SELECT user_identifier, subscription_status,api_key FROM users WHERE email = ?', [useremail]);
+            if (rows.length === 0 || rows[0].subscription_status !== 'active') {
+                return res.status(401).send('Invalid or inactive Email key.');
+            }
+            else {
+                apiKey = rows[0].api_key; // Use the API key from the database
+            }
+        }
     }
+    
+    
     try {
         const [rows] = await pool.query('SELECT user_identifier FROM users WHERE api_key = ?', [apiKey]);
 
