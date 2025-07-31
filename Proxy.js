@@ -258,7 +258,7 @@ const paywallMiddleware = async (req, res, next) => {
 
 async function getApiKeyFromRequest(req, res) {
   const cookieToken = req.cookies[AUTH_COOKIE_NAME];
-
+  console.log(`DEBUG: getApiKeyFromRequest called. Cookie token: ${cookieToken}`);  
   // 1. Try cookie
   if (cookieToken) {
     try {
