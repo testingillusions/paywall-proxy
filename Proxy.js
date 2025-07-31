@@ -478,45 +478,117 @@ app.get('/auth-launch', async (req, res) => {
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Go Link with Header</title>
+  <title>Redirecting to Plan Comparison Tool</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f7f9fc;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      margin: 0;
+      color: #333;
+    }
+
+    .container {
+      text-align: center;
+      padding: 30px;
+      border-radius: 10px;
+      background-color: #fff;
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+    }
+
+    h1 {
+      font-size: 1.5rem;
+      margin-bottom: 10px;
+    }
+
+    p {
+      font-size: 1rem;
+      margin-bottom: 20px;
+    }
+
+    .loader {
+      border: 4px solid #f3f3f3;
+      border-top: 4px solid #007BFF;
+      border-radius: 50%;
+      width: 30px;
+      height: 30px;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 20px;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    button {
+      background-color: #007BFF;
+      color: #fff;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 5px;
+      font-size: 1rem;
+      cursor: pointer;
+      transition: background-color 0.3s ease;
+    }
+
+    button:hover {
+      background-color: #0056b3;
+    }
+  </style>
 </head>
 <body>
-  <button id="goButton">Go</button>
+  <div class="container">
+    <div class="loader"></div>
+    <h1>Redirecting to the Plan Comparison Tool...</h1>
+    <p>If you are not redirected within a few seconds, click the button below:</p>
+    <button id="goButton">Go to Plan Comparison Tool</button>
+  </div>
 
   <script>
-    const API_KEY = 'YOUR_API_KEY_HERE'; // Replace with your actual API key
-
-    document.getElementById('goButton').addEventListener('click', async () => {
+    
+    async function redirectToTool() {
       try {
         const response = await fetch('https://tba.testingillusions.com/api/create-launch-token', {
-          method: 'GET', // or 'POST' if required
+          method: 'GET',
           headers: {
             'Authorization': 'Bearer ${apiKey}'
           }
         });
- 	    if (!response.ok) {
+
+        if (!response.ok) {
           throw new Error('Server responded with ' + response.statusText);
         }
+
         const data = await response.json();
-        console.log(data.launch_url);
-        
-        console.log('Response received:', response.body);
-        
+        console.log('Launch URL:', data.launch_url);
+
         if (data.launch_url) {
           if (window.top !== window.self) {
-             window.top.location = data.launch_url;
+            window.top.location = data.launch_url;
+          } else {
+            window.location.href = data.launch_url;
           }
-        }
-          else {
+        } else {
           alert('launch_url not found in response');
         }
-     }
-     catch (error) {
+      } catch (error) {
         console.error('Error:', error);
-        alert('An error occurred. See console for details.');
+        alert('An error occurred while redirecting. Check console for details.');
       }
-    });
+    }
 
+    document.getElementById('goButton').addEventListener('click', redirectToTool);
+
+    // Automatically redirect after 3 seconds
+    window.onload = function () {
+      setTimeout(redirectToTool, 3000);
+    };
   </script>
 </body>
 </html>
