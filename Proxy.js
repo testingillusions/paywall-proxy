@@ -493,7 +493,7 @@ app.get('/auth-launch', async (req, res) => {
           headers: {
             'Authorization': 'Bearer ${apiKey}'
           }
-        }
+        });
  	    if (!response.ok) {
           throw new Error('Server responded with ' + response.statusText);
         }
