@@ -42,7 +42,7 @@ app.use(express.json()); // Enable parsing of JSON request bodies for API endpoi
 app.use('/images', express.static('public/images'));
 
 // --- Log all incoming Express requests ---
-app.use((req, res, next) => {
+/* app.use((req, res, next) => {
     console.log(`DEBUG: Express received request for: ${req.originalUrl}`);
     console.log('DEBUG: Incoming request headers:\n', JSON.stringify(req.headers, null, 2));
       console.log('--- Incoming Request ---');
@@ -79,7 +79,7 @@ app.use((req, res, next) => {
   console.log('Raw headers:  ', req.rawHeaders);
     next(); // Pass the request to the next middleware (which is our proxy)
 });
-
+ */
 
 app.use((req, res, next) => {
     const allowedOrigins = ['https://testingillusions.com', 'https://tba.vueocity.com'];
