@@ -274,6 +274,7 @@ async function getApiKeyFromRequest(req, res) {
 
   // 2. Try Bearer header or query param
   const header = req.headers['authorization'];
+  console.log(`DEBUG: Authorization header: ${header}`);
   const query = req.query.apiKey;
 
   if (header?.startsWith('Bearer ')) return header.split(' ')[1];
