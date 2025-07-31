@@ -785,6 +785,12 @@ app.post('/api/register', express.urlencoded({ extended: true }), adminAuthMiddl
 
 
 // =========================================
+// Attach Middleware and Start Proxy Server
+// =========================================
+// --- APPLY PAYWALL MIDDLEWARE BEFORE THE PROXY ---
+app.use(paywallMiddleware);
+
+// =========================================
 // Proxy Middleware Configuration and Handlers
 // =========================================
 // Configure the proxy middleware
@@ -857,7 +863,7 @@ const apiProxy = createProxyMiddleware({
             }
         }
         console.log(`Proxying request: ${req.method} ${urlPath} -> ${TARGET_URL}${proxyReq.path}`);
-        console.log('DEBUG: Outbound headers:', proxyReq.getHeaders());
+
     },
     onProxyRes: (proxyRes, req, res) => {
         console.log(`Received response from target for: ${req.originalUrl} with status ${proxyRes.statusCode}`);
@@ -975,11 +981,7 @@ const apiProxy = createProxyMiddleware({
 });
 
 
-// =========================================
-// Attach Middleware and Start Proxy Server
-// =========================================
-// --- APPLY PAYWALL MIDDLEWARE BEFORE THE PROXY ---
-app.use(paywallMiddleware);
+
 
 // Use the proxy middleware for all requests starting with '/' (root path)
 app.use('/', apiProxy);
