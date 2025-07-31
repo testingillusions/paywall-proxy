@@ -484,15 +484,13 @@ app.get('/auth-launch', async (req, res) => {
     html, body {
      height: 100%;
      margin: 0;
-    padding: 0;
+     padding: 0;
     }
     body {
-     display: flex;
-     flex-direction: column;
-     justify-content: center;
-     align-items: center;
-     min-height: 100%;
-     background: #f7f9fc;
+        margin: 0;
+        padding: 16px;
+        font-family: Arial, sans-serif;
+        background: #f7f9fc;
     }
 
     .container {
@@ -538,9 +536,16 @@ app.get('/auth-launch', async (req, res) => {
       cursor: pointer;
       transition: background-color 0.3s ease;
     }
-
+    
     button:hover {
       background-color: #0056b3;
+    }
+    .container {
+        margin-top: 0;
+        padding-top: 0;
+    }
+    .loader {
+        margin-bottom: 16px;
     }
   </style>
 </head>
