@@ -494,7 +494,7 @@ app.get('/auth-launch', async (req, res) => {
             'Authorization': 'Bearer ${apiKey}'
           }
  	if (!response.ok) {
-          throw new Error('Server responded with ${response.status}');
+          throw new Error('Server responded with ${res.status}');
         }
 
         const result = await response.json();
