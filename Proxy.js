@@ -857,6 +857,7 @@ const apiProxy = createProxyMiddleware({
             }
         }
         console.log(`Proxying request: ${req.method} ${urlPath} -> ${TARGET_URL}${proxyReq.path}`);
+        console.log('DEBUG: Outbound headers:', proxyReq.getHeaders());
     },
     onProxyRes: (proxyRes, req, res) => {
         console.log(`Received response from target for: ${req.originalUrl} with status ${proxyRes.statusCode}`);
