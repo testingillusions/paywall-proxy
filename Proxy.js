@@ -229,7 +229,7 @@ const paywallMiddleware = async (req, res, next) => { // Made async to use await
                 if (rows.length > 0 && rows[0].subscription_status === 'active') {
                     console.log(`INFO: Access granted via cookie for API Key: ${decoded.api_key}`);
                     // Attach user info to request for potential future use (e.g., rate limiting by user)
-                    req.user = { apiKey: decoded.api_key, userIdentifier: rows[0].user_identifier };
+                    req.user = { apiKey: decoded.api_key, userIdentifier: rows[0].user_identifier, user_email: rows[0].email };
                     return next(); // Valid cookie and active subscription found, proceed
                 } else {
                     console.warn(`WARNING: Cookie valid but subscription status is not active for API Key: ${decoded.api_key}`);
@@ -272,7 +272,7 @@ const paywallMiddleware = async (req, res, next) => { // Made async to use await
                 });
                 console.log(`INFO: Authentication cookie set for ${req.originalUrl}`);
                 // Attach user info to request for potential future use (e.g., rate limiting by user)
-                req.user = { apiKey: providedApiKey, userIdentifier: rows[0].user_identifier };
+                req.user = { apiKey: providedApiKey, userIdentifier: rows[0].user_identifier, user_email: rows[0].email };
 
                 next(); // API key is valid and active, proceed
             } else {
@@ -434,13 +434,13 @@ app.get('/api/create-launch-token', async (req, res) => {
 // redirect to the root to server up the proxy content. 
 
 //TODO: ADDED LOGIC FOR WORKAROUND WITH VUE, THIS NEEDS TO BE REMOVED AFTER MIGRATION!!!
-const tempKey = "eIAtCjEocfNqAlFZBveO6vBwL2Ra2bkO9bRPVQVAMzbOcbX6Q1Je75gu4nmAodTd"
-const tempKeyAPI= "3603b3d381d05fc28ef60adfc11c17769c9ab6945e6798a8cf87f3db0b2b4422"
+//const tempKey = "eIAtCjEocfNqAlFZBveO6vBwL2Ra2bkO9bRPVQVAMzbOcbX6Q1Je75gu4nmAodTd"
+//const tempKeyAPI= "3603b3d381d05fc28ef60adfc11c17769c9ab6945e6798a8cf87f3db0b2b4422"
 
 app.get('/auth-launch', async (req, res) => {
     const token = req.query.token;
     // NOTE: This will need to be changed if scaling is required. 
-    if (token!=tempKey) //If not the override key
+    if (token!=tempKey) // This is the normal path this workflow should take.
     {
 
         if( !token || !launchTokens[token] ) {
@@ -456,9 +456,35 @@ app.get('/auth-launch', async (req, res) => {
 
         // Token is valid
         delete launchTokens[token];
+     
+        try {
+        const [rows] = await pool.query('SELECT user_identifier FROM users WHERE api_key = ?', [apiKey]);
+
+        if (rows.length === 0) {
+            return res.status(403).send('User not found.');
+        }
+
+        const jwtToken = jwt.sign(
+            { authenticated: true, api_key: apiKey, user: rows[0].user_identifier },
+            JWT_SECRET,
+            { expiresIn: '1h' }
+        );
+
+        res.cookie(AUTH_COOKIE_NAME, jwtToken, {
+            httpOnly: true,
+            secure: true,
+            sameSite: 'Lax'
+        });
+       
+	    return res.redirect('/');
+        } catch (err) {
+            console.error('Auth-launch DB error:', err);
+            res.status(500).send('Server error');
     }
-    else {
-	if(!req.headers['vue-auth'] || !req.headers['vue-auth']=="AE8A774F-1DE0-4F98-B037-659645706A66"){
+
+    }
+    else {  //This is the path if coming from Vue.
+	    if(!req.headers['vue-auth'] || !req.headers['vue-auth']=="AE8A774F-1DE0-4F98-B037-659645706A66"){
             return res.status(403).send('Invalid or missing launch token - NOT FROM VUE.');
         }
         useremail = req.headers['vue-email']
@@ -622,31 +648,6 @@ app.get('/auth-launch', async (req, res) => {
         }
     }
     
-    
-    try {
-        const [rows] = await pool.query('SELECT user_identifier FROM users WHERE api_key = ?', [apiKey]);
-
-        if (rows.length === 0) {
-            return res.status(403).send('User not found.');
-        }
-
-        const jwtToken = jwt.sign(
-            { authenticated: true, api_key: apiKey, user: rows[0].user_identifier },
-            JWT_SECRET,
-            { expiresIn: '1h' }
-        );
-
-        res.cookie(AUTH_COOKIE_NAME, jwtToken, {
-            httpOnly: true,
-            secure: true,
-            sameSite: 'Lax'
-        });
-       
-	return res.redirect('/');
-    } catch (err) {
-        console.error('Auth-launch DB error:', err);
-        res.status(500).send('Server error');
-    }
 });
 
 // Used to prompt user for a username and password.
