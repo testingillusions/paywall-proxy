@@ -481,16 +481,18 @@ app.get('/auth-launch', async (req, res) => {
   <title>Redirecting to Plan Comparison Tool</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <style>
+    html, body {
+     height: 100%;
+     margin: 0;
+    padding: 0;
+    }
     body {
-      font-family: Arial, sans-serif;
-      background: #f7f9fc;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      height: 100vh;
-      margin: 0;
-      color: #333;
+     display: flex;
+     flex-direction: column;
+     justify-content: center;
+     align-items: center;
+     min-height: 100%;
+     background: #f7f9fc;
     }
 
     .container {
