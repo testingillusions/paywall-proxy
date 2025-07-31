@@ -503,8 +503,10 @@ app.get('/auth-launch', async (req, res) => {
         console.log('Response received:', response.body);
         
         if (data.launch_url) {
-          window.location.href = data.launch_url;
-        } else {
+          if (window.top !== window.self) {
+             window.top.location = data.launch_url;
+        }
+        else {
           alert('launch_url not found in response');
         }
       } catch (error) {
