@@ -505,11 +505,13 @@ app.get('/auth-launch', async (req, res) => {
         if (data.launch_url) {
           if (window.top !== window.self) {
              window.top.location = data.launch_url;
+          }
         }
-        else {
+          else {
           alert('launch_url not found in response');
         }
-      } catch (error) {
+     }
+     catch (error) {
         console.error('Error:', error);
         alert('An error occurred. See console for details.');
       }
