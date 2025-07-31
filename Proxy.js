@@ -497,8 +497,10 @@ app.get('/auth-launch', async (req, res) => {
  	    if (!response.ok) {
           throw new Error('Server responded with ' + response.statusText);
         }
-        if (result.launch_url) {
-          window.location.href = result.launch_url;
+        console.log('Response received:', response);
+        
+        if (response.launch_url) {
+          window.location.href = response.launch_url;
         } else {
           alert('launch_url not found in response');
         }
