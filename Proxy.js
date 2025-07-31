@@ -258,7 +258,8 @@ const paywallMiddleware = async (req, res, next) => {
 
 async function getApiKeyFromRequest(req, res) {
   const cookieToken = req.cookies[AUTH_COOKIE_NAME];
-  console.log(`DEBUG: getApiKeyFromRequest called. Cookie token: ${cookieToken}`);  
+  console.log(`DEBUG: getApiKeyFromRequest called. Cookie token: ${cookieToken}`);
+  console.log(`DEBUG: Authorization header: ${header}`);
   // 1. Try cookie
   if (cookieToken) {
     try {
@@ -274,7 +275,7 @@ async function getApiKeyFromRequest(req, res) {
 
   // 2. Try Bearer header or query param
   const header = req.headers['authorization'];
-  console.log(`DEBUG: Authorization header: ${header}`);
+
   const query = req.query.apiKey;
 
   if (header?.startsWith('Bearer ')) return header.split(' ')[1];
