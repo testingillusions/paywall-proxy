@@ -82,18 +82,16 @@ app.use((req, res, next) => {
 
 
 app.use((req, res, next) => {
+    const allowedOrigins = ['https://testingillusions.com', 'https://tba.vueocity.com'];
     const origin = req.headers.origin;
 
-    // Update this if supporting multiple origins
-    const allowedOrigin = 'https://testingillusions.com';
-
-    if (origin === allowedOrigin) {
-        res.header('Access-Control-Allow-Origin', allowedOrigin);
+    if (allowedOrigins.includes(origin)) {
+        res.header('Access-Control-Allow-Origin', origin);
         res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
         res.header('Access-Control-Allow-Headers', 'Authorization, Content-Type');
         res.header('Access-Control-Allow-Credentials', 'true');
     }
-
+    
     if (req.method === 'OPTIONS') {
         return res.sendStatus(200);
     }
@@ -442,7 +440,6 @@ const tempKeyAPI= "3603b3d381d05fc28ef60adfc11c17769c9ab6945e6798a8cf87f3db0b2b4
 app.get('/auth-launch', async (req, res) => {
     const token = req.query.token;
     // NOTE: This will need to be changed if scaling is required. 
-    
     if (token!=tempKey) //If not the override key
     {
 
@@ -476,7 +473,50 @@ app.get('/auth-launch', async (req, res) => {
             }
             else {
                 apiKey = rows[0].api_key; // Use the API key from the database
-            }
+        	res.send (`
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Go Link with Header</title>
+</head>
+<body>
+  <button id="goButton">Go</button>
+
+  <script>
+    const API_KEY = 'YOUR_API_KEY_HERE'; // Replace with your actual API key
+
+    document.getElementById('goButton').addEventListener('click', async () => {
+      try {
+        const response = await fetch('https://tba.testingillusions.com/api/create-launch-token', {
+          method: 'GET', // or 'POST' if required
+          headers: {
+            'Authorization': 'Bearer ${apiKey}'
+          }
+ 	if (!response.ok) {
+          throw new Error('Server responded with ${response.status}');
+        }
+
+        const result = await response.json();
+        console.log('Response:', result);
+
+        if (result.launch_url) {
+          window.location.href = result.launch_url;
+        } else {
+          alert('launch_url not found in response');
+        }
+      } catch (error) {
+        console.error('Error:', error);
+        alert('An error occurred. See console for details.');
+      }
+    });
+
+  </script>
+</body>
+</html>
+
+			`)
+	    }
         }
     }
     
@@ -499,8 +539,8 @@ app.get('/auth-launch', async (req, res) => {
             secure: true,
             sameSite: 'Lax'
         });
-
-        return res.redirect('/');
+       
+	return res.redirect('/');
     } catch (err) {
         console.error('Auth-launch DB error:', err);
         res.status(500).send('Server error');
