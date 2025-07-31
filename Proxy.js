@@ -547,14 +547,33 @@ app.get('/auth-launch', async (req, res) => {
     .loader {
         margin-bottom: 16px;
     }
+    .inline-redirect {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        flex-wrap: wrap; /* ensures wrapping on narrow iframes */
+    }
+
+    .inline-redirect p {
+        margin: 0;
+        font-size: 0.95rem;
+    }
+
+    .inline-redirect button {
+        padding: 6px 12px;
+        font-size: 0.9rem;
+    }
   </style>
 </head>
 <body>
   <div class="container">
     <div class="loader"></div>
     <h1>Redirecting to the Plan Comparison Tool...</h1>
-    <p>If you are not redirected within a few seconds, click the button below:</p>
-    <button id="goButton">Go to Plan Comparison Tool</button>
+    <div class="inline-redirect">
+        <p>If you are not redirected within a few seconds, click here:</p>
+        <button id="goButton">Load PCT</button>
+    </div>
   </div>
 
   <script>
@@ -592,15 +611,13 @@ app.get('/auth-launch', async (req, res) => {
 
     document.getElementById('goButton').addEventListener('click', redirectToTool);
 
-    // Automatically redirect after 10 seconds
+    // Automatically redirect after 3 seconds
     window.onload = function () {
-      //setTimeout(redirectToTool, 10000);
+      //setTimeout(redirectToTool, 3000);
     };
   </script>
 </body>
-</html>
-
-			`)
+</html>		`)
 	    }
         }
     }

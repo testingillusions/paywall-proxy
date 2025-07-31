@@ -5,16 +5,16 @@
   <title>Redirecting to Plan Comparison Tool</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <style>
+    html, body {
+     height: 100%;
+     margin: 0;
+     padding: 0;
+    }
     body {
-      font-family: Arial, sans-serif;
-      background: #f7f9fc;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      height: 100vh;
-      margin: 0;
-      color: #333;
+        margin: 0;
+        padding: 16px;
+        font-family: Arial, sans-serif;
+        background: #f7f9fc;
     }
 
     .container {
@@ -60,9 +60,33 @@
       cursor: pointer;
       transition: background-color 0.3s ease;
     }
-
+    
     button:hover {
       background-color: #0056b3;
+    }
+    .container {
+        margin-top: 0;
+        padding-top: 0;
+    }
+    .loader {
+        margin-bottom: 16px;
+    }
+    .inline-redirect {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        flex-wrap: wrap; /* ensures wrapping on narrow iframes */
+    }
+
+    .inline-redirect p {
+        margin: 0;
+        font-size: 0.95rem;
+    }
+
+    .inline-redirect button {
+        padding: 6px 12px;
+        font-size: 0.9rem;
     }
   </style>
 </head>
@@ -70,19 +94,20 @@
   <div class="container">
     <div class="loader"></div>
     <h1>Redirecting to the Plan Comparison Tool...</h1>
-    <p>If you are not redirected within a few seconds, click the button below:</p>
-    <button id="goButton">Go to Plan Comparison Tool</button>
+    <div class="inline-redirect">
+        <p>If you are not redirected within a few seconds, click here:</p>
+        <button id="goButton">Load PCT</button>
+    </div>
   </div>
 
   <script>
-    const API_KEY = 'YOUR_API_KEY_HERE'; // 🔐 Replace with your actual API key
-
+    
     async function redirectToTool() {
       try {
         const response = await fetch('https://tba.testingillusions.com/api/create-launch-token', {
           method: 'GET',
           headers: {
-            'Authorization': `Bearer ${API_KEY}`
+            'Authorization': 'Bearer ${apiKey}'
           }
         });
 
@@ -112,7 +137,7 @@
 
     // Automatically redirect after 3 seconds
     window.onload = function () {
-      setTimeout(redirectToTool, 3000);
+      //setTimeout(redirectToTool, 3000);
     };
   </script>
 </body>
