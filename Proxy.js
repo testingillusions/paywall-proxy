@@ -434,7 +434,7 @@ app.get('/api/create-launch-token', async (req, res) => {
 // redirect to the root to server up the proxy content. 
 
 //TODO: ADDED LOGIC FOR WORKAROUND WITH VUE, THIS NEEDS TO BE REMOVED AFTER MIGRATION!!!
-//const tempKey = "eIAtCjEocfNqAlFZBveO6vBwL2Ra2bkO9bRPVQVAMzbOcbX6Q1Je75gu4nmAodTd"
+const tempKey = "eIAtCjEocfNqAlFZBveO6vBwL2Ra2bkO9bRPVQVAMzbOcbX6Q1Je75gu4nmAodTd"
 //const tempKeyAPI= "3603b3d381d05fc28ef60adfc11c17769c9ab6945e6798a8cf87f3db0b2b4422"
 
 app.get('/auth-launch', async (req, res) => {
