@@ -492,14 +492,10 @@ app.get('/auth-launch', async (req, res) => {
           method: 'GET', // or 'POST' if required
           headers: {
             'Authorization': 'Bearer ${apiKey}'
-          }
- 	if (!response.ok) {
-          throw new Error('Server responded with ${res.status}');
         }
-
-        const result = await response.json();
-        console.log('Response:', result);
-
+ 	    if (!response.ok) {
+          throw new Error('Server responded with ' + response.statusText);
+        }
         if (result.launch_url) {
           window.location.href = result.launch_url;
         } else {
