@@ -587,9 +587,9 @@ app.get('/auth-launch', async (req, res) => {
 
     document.getElementById('goButton').addEventListener('click', redirectToTool);
 
-    // Automatically redirect after 3 seconds
+    // Automatically redirect after 10 seconds
     window.onload = function () {
-      setTimeout(redirectToTool, 3000);
+      //setTimeout(redirectToTool, 10000);
     };
   </script>
 </body>
