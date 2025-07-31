@@ -196,98 +196,99 @@ if (!JWT_SECRET || !ADMIN_SECRET_KEY) {
 }
 
 // Paywall Middleware
-const paywallMiddleware = async (req, res, next) => { // Made async to use await for DB queries
-    // Define paths that should NOT require an API key (e.g., static assets that are publicly accessible)
-    // Also exclude the new API management endpoints from the main paywall
-    const EXCLUDED_PAYWALL_PATHS = [
-        '/assets/',
-        '/css/',
-        '/js/',
-        '/images/',
-        '/favicon.ico',
-        '/api/generate-token', // Exclude API management endpoints
-        '/api/update-subscription-status',    // Exclude API management endpoints
-        '/app/modules/tba/'
-    ];
+const EXCLUDED_PAYWALL_PATHS = [
+  '/assets/', '/css/', '/js/', '/images/', '/favicon.ico',
+  '/api/generate-token',
+  '/api/update-subscription-status',
+  '/app/modules/tba/'
+];
 
-    // Check if the current request path starts with any of the excluded paths
-    const isExcludedPath = EXCLUDED_PAYWALL_PATHS.some(prefix => req.originalUrl.startsWith(prefix));
-
-    if (isExcludedPath) {
-        console.log(`INFO: Skipping main paywall for excluded path: ${req.originalUrl}`);
-        return next(); // Skip paywall check for static assets and API management endpoints
+const paywallMiddleware = async (req, res, next) => {
+  try {
+    const isExcluded = EXCLUDED_PAYWALL_PATHS.some(prefix => req.originalUrl.startsWith(prefix));
+    if (isExcluded) {
+      console.log(`INFO: Skipping paywall for: ${req.originalUrl}`);
+      return next();
     }
 
-    // --- Check for existing authentication cookie first ---
-    const authToken = req.cookies[AUTH_COOKIE_NAME];
-    if (authToken) {
-        try {
-            const decoded = jwt.verify(authToken, JWT_SECRET);
-            if (decoded.authenticated === true && decoded.api_key) {
-                // Verify the API key from the token against the database to ensure subscription is active
-                const [rows] = await pool.query('SELECT subscription_status FROM users WHERE api_key = ?', [decoded.api_key]);
-                if (rows.length > 0 && rows[0].subscription_status === 'active') {
-                    console.log(`INFO: Access granted via cookie for API Key: ${decoded.api_key}`);
-                    // Attach user info to request for potential future use (e.g., rate limiting by user)
-                    req.user = { apiKey: decoded.api_key, userIdentifier: rows[0].user_identifier, user_email: rows[0].email };
-                    return next(); // Valid cookie and active subscription found, proceed
-                } else {
-                    console.warn(`WARNING: Cookie valid but subscription status is not active for API Key: ${decoded.api_key}`);
-                    res.clearCookie(AUTH_COOKIE_NAME); // Clear invalid cookie
-                }
-            }
-        } catch (err) {
-            console.warn(`WARNING: Invalid or expired cookie: ${err.message}`);
-            // If cookie is invalid, clear it to force re-authentication
-            res.clearCookie(AUTH_COOKIE_NAME);
-        }
+    const apiKey = await getApiKeyFromRequest(req, res);
+    if (!apiKey) {
+      console.warn('WARNING: No API key or valid cookie provided.');
+      return res.redirect('/login');
     }
 
-    // --- Check for API Key in Header or Query (if no valid cookie was found) ---
-    const apiKeyFromHeader = req.headers['authorization'];
-    const apiKeyFromQuery = req.query.apiKey;
-
-    let providedApiKey = null;
-
-    if (apiKeyFromHeader && apiKeyFromHeader.startsWith('Bearer ')) {
-        providedApiKey = apiKeyFromHeader.split(' ')[1];
-    } else if (apiKeyFromQuery) {
-        providedApiKey = apiKeyFromQuery;
+    const user = await getUserByApiKey(apiKey);
+    if (!user || user.subscription_status !== 'active') {
+      console.warn(`WARNING: Access denied for API Key: ${apiKey}`);
+      res.clearCookie(AUTH_COOKIE_NAME);
+      return res.status(401).send('Unauthorized: Invalid or inactive API Key.');
     }
 
-    if (providedApiKey) {
-        try {
-            // Query database to validate the provided API key
-            const [rows] = await pool.query('SELECT user_identifier, subscription_status FROM users WHERE api_key = ?', [providedApiKey]);
+    // Attach user details to request
+    req.user = {
+      apiKey,
+      userIdentifier: user.user_identifier,
+      user_email: user.email
+    };
 
-            if (rows.length > 0 && rows[0].subscription_status === 'active') {
-                console.log(`INFO: Access granted via API Key: ${providedApiKey} (User: ${rows[0].user_identifier})`);
-
-                // Set authentication cookie upon successful API key validation
-                const token = jwt.sign({ authenticated: true, api_key: providedApiKey, user: rows[0].user_identifier }, JWT_SECRET, { expiresIn: '1h' }); // Token valid for 1 hour
-                res.cookie(AUTH_COOKIE_NAME, token, {
-                    httpOnly: true, // Prevents client-side JavaScript from accessing the cookie
-                    secure: true,   // Ensures cookie is only sent over HTTPS
-                    sameSite: 'lax' // Recommended for CSRF protection
-                });
-                console.log(`INFO: Authentication cookie set for ${req.originalUrl}`);
-                // Attach user info to request for potential future use (e.g., rate limiting by user)
-                req.user = { apiKey: providedApiKey, userIdentifier: rows[0].user_identifier, user_email: rows[0].email };
-
-                next(); // API key is valid and active, proceed
-            } else {
-                console.warn(`WARNING: Access denied: API Key "${providedApiKey}" not found or subscription not active.`);
-                res.status(401).send('Unauthorized: Invalid or inactive API Key.');
-            }
-        } catch (dbError) {
-            console.error('ERROR: Database error during API Key validation:', dbError);
-            res.status(500).send('Internal Server Error during authentication.');
-        }
-    } else {
-        console.warn(`WARNING: Access denied: No API Key or valid cookie provided.`);
-        res.redirect('/login');
+    // Set cookie if it wasn't already valid
+    if (!req.cookies[AUTH_COOKIE_NAME]) {
+      const token = jwt.sign(
+        { authenticated: true, api_key: apiKey, user: user.user_identifier },
+        JWT_SECRET,
+        { expiresIn: '1h' }
+      );
+      res.cookie(AUTH_COOKIE_NAME, token, {
+        httpOnly: true,
+        secure: true,
+        sameSite: 'lax'
+      });
+      console.log(`INFO: Auth cookie set for ${req.originalUrl}`);
     }
+
+    return next();
+
+  } catch (err) {
+    console.error('ERROR in paywallMiddleware:', err);
+    return res.status(500).send('Internal Server Error');
+  }
 };
+
+// --- Helpers ---
+
+async function getApiKeyFromRequest(req, res) {
+  const cookieToken = req.cookies[AUTH_COOKIE_NAME];
+
+  // 1. Try cookie
+  if (cookieToken) {
+    try {
+      const decoded = jwt.verify(cookieToken, JWT_SECRET);
+      if (decoded.authenticated && decoded.api_key) {
+        return decoded.api_key;
+      }
+    } catch (err) {
+      console.warn(`WARNING: Invalid cookie: ${err.message}`);
+      res.clearCookie(AUTH_COOKIE_NAME);
+    }
+  }
+
+  // 2. Try Bearer header or query param
+  const header = req.headers['authorization'];
+  const query = req.query.apiKey;
+
+  if (header?.startsWith('Bearer ')) return header.split(' ')[1];
+  if (query) return query;
+
+  return null;
+}
+
+async function getUserByApiKey(apiKey) {
+  const [rows] = await pool.query(
+    'SELECT user_identifier, subscription_status, email FROM users WHERE api_key = ?',
+    [apiKey]
+  );
+  return rows[0];
+}
 // --- END PAYWALL CONFIGURATION ---
 
 
@@ -639,7 +640,7 @@ app.get('/auth-launch', async (req, res) => {
 
     // Automatically redirect after 3 seconds
     window.onload = function () {
-      //setTimeout(redirectToTool, 3000);
+      setTimeout(redirectToTool, 3000);
     };
   </script>
 </body>
@@ -827,7 +828,10 @@ const apiProxy = createProxyMiddleware({
     onProxyReq: (proxyReq, req, res) => {
         // Log at the very start of onProxyReq
         console.log(`DEBUG: onProxyReq function entered for URL: ${req.originalUrl}`);
-
+        if (req.user?.user_email) {
+            proxyReq.setHeader('VUE-EMAIL', req.user.user_email);
+        }
+        
         const urlPath = req.originalUrl; // Get the original requested URL path
 
         // Log the Host header being sent to the target to verify changeOrigin
