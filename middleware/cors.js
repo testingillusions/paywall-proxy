@@ -7,6 +7,7 @@ const allowedOrigins = [
 
 module.exports = cors({
   origin: (origin, callback) => {
+    console.log('CORS origin:', origin);
     if (!origin || allowedOrigins.includes(origin)) {
       return callback(null, true);
     }
