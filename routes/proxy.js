@@ -7,7 +7,7 @@ module.exports = createProxyMiddleware({
   target: targetUrl,
   changeOrigin: true,
   ws: true,
-  pathRewrite: (path) => path,
+  //pathRewrite: (path) => path,
   onProxyReq: (proxyReq, req) => {
     onsole.log('🔁 Proxying request to:', req.url);
     if (req.user?.email) proxyReq.setHeader('VUE-EMAIL', req.user.email);
