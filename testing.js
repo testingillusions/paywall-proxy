@@ -5,7 +5,7 @@ const { createProxyMiddleware } = require('http-proxy-middleware');
 const app = express();
 
 // Change this to wherever you want to forward traffic
-const TARGET_URL = 'http://example.com';
+const TARGET_URL = 'https://echo.free.beeceptor.com';
 
 app.use(
   '/',
