@@ -6,6 +6,16 @@ const { jwtSecret, appBaseUrl } = require('../config');
 const { findUserByEmail, findUserByApiKey } = require('../services/userService');
 const { generateToken, consumeToken } = require('../services/tokenService');
 
+router.get('/login', (req, res) => {
+  res.send(`
+    <form method="POST" action="/login">
+      <input name="email"    type="email"    placeholder="Email"    required />
+      <input name="password" type="password" placeholder="Password" required />
+      <button type="submit">Log In</button>
+    </form>
+  `);
+});
+
 router.post('/login', express.urlencoded({ extended: true }), async (req, res) => {
   const { email, password } = req.body;
   const user = await findUserByEmail(email);
