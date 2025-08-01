@@ -1,5 +1,9 @@
 const cors = require('cors');
-const allowedOrigins = ['https://testingillusions.com', 'https://tba.vueocity.com'];
+const allowedOrigins = [
+   'https://testingillusions.com',
+   'https://tba.vueocity.com',
+   'https://tba.testingillusions.com'
+ ];
 
 module.exports = cors({
   origin: (origin, callback) => {
