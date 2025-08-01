@@ -4,11 +4,10 @@ const zlib = require('zlib');
 const { DISALLOWED_EXTENSIONS = [] } = {};
 
 module.exports = createProxyMiddleware({
-  console.log('🔁 Proxying request to IN MIDDLEWARE:', req.url);
   target: targetUrl,
   changeOrigin: true,
   ws: true,
-  //pathRewrite: (path) => path,
+  pathRewrite: (path) => path,
   onProxyReq: (proxyReq, req) => {
     console.log('🔁 Proxying request to:', req.url);
     if (req.user?.email) proxyReq.setHeader('VUE-EMAIL', req.user.email);
@@ -22,6 +21,7 @@ module.exports = createProxyMiddleware({
 
   },
   onProxyRes: (proxyRes, req, res) => {
+    console.log('🔁 Proxying onProxyRes:', req.url);
     // minimal rewrite logic
     proxyRes.pipe(res);
   },
