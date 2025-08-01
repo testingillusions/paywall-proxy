@@ -27,8 +27,6 @@ async function start() {
   app.use(adminRouter);
   
   app.use(corsMiddleware);
-  // index.js, before any middleware
-  app.set('trust proxy', 1);
 
   app.use(paywall);
   app.use(rateLimiter);
