@@ -12,6 +12,11 @@ module.exports = createProxyMiddleware({
     if (req.user?.email) proxyReq.setHeader('VUE-EMAIL', req.user.email);
     proxyReq.setHeader('VUE-AUTH', 'AE8A774F-1DE0-4F98-B037-659645706A66'); 
     proxyReq.setHeader('TBA-PLAN-TIER', 'Tier1');  
+    console.log('Injecting headers into proxy:', {
+        'VUE-AUTH': 'STATIC_TOKEN_12345',
+        'TBA-PLAN-TIER': 'pro',
+        'VUE-EMAIL': req.user?.email
+  });
 
   },
   onProxyRes: (proxyRes, req, res) => {
