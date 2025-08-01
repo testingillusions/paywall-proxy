@@ -20,12 +20,13 @@ async function start() {
   app.use(morgan('combined'));
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
-  app.use(corsMiddleware);
+  
 
   app.use('/healthcheck', healthRouter);
   app.use(authRouter);
   app.use(adminRouter);
-
+  
+  app.use(corsMiddleware);
   // index.js, before any middleware
   app.set('trust proxy', 1);
 
