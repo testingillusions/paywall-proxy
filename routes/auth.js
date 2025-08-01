@@ -19,6 +19,7 @@ router.get('/login', (req, res) => {
 router.post('/login', express.urlencoded({ extended: true }), async (req, res) => {
   const { email, password } = req.body;
   const user = await findUserByEmail(email);
+  console.log('Login attempt for:', email, 'User found:', !!user);
   if (!user || !(await bcrypt.compare(password, user.password_hash)))
     return res.status(401).send('Invalid');
   if (user.subscription_status !== 'active')
