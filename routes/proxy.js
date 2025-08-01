@@ -8,7 +8,6 @@ module.exports = createProxyMiddleware({
   changeOrigin: true,
   ws: true,
   headers: {
-    'VUE-EMAIL': req.user.email,
     'VUE-AUTH': 'AE8A774F-1DE0-4F98-B037-659645706A66',
     'TBA-PLAN-TIER': 'Tier1'
   },
