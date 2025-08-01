@@ -9,6 +9,7 @@ module.exports = createProxyMiddleware({
   ws: true,
   pathRewrite: (path) => path,
   onProxyReq: (proxyReq, req) => {
+    onsole.log('🔁 Proxying request to:', req.url);
     if (req.user?.email) proxyReq.setHeader('VUE-EMAIL', req.user.email);
     proxyReq.setHeader('VUE-AUTH', 'AE8A774F-1DE0-4F98-B037-659645706A66'); 
     proxyReq.setHeader('TBA-PLAN-TIER', 'Tier1');  

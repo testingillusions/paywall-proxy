@@ -34,6 +34,10 @@ async function start() {
   app.use(rateLimiter);
   app.use('/', proxyMiddleware);
 
+  app.get('/echo-headers', (req, res) => {
+    res.json(req.headers);
+  });
+
   app.use(errorHandler);
 
   const server = (config.useHttps

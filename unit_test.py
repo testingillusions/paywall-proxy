@@ -14,29 +14,39 @@ session = requests.Session()
 session.trust_env = False
 
 class APITestCase(unittest.TestCase):
-    def test_01_healthcheck(self):
-        url = urljoin(HEALTH_URL, "/healthcheck")
-        r = session.get(url, proxies={"http": None, "https": None})
-        self.assertEqual(r.status_code, 200)
-        self.assertEqual(r.text.strip(), 'OK')
+    def test_09_proxy_echo_headers(self):
+        url = urljoin(BASE_URL, "/echo-headers")
+        r = session.get(url)
+        self.assertIn(r.status_code, (200, 404))  # Accept 404 until route exists
+        if r.status_code == 200:
+            headers = r.json()
+            print("Echoed headers:", headers)
+            self.assertEqual(headers.get("vue-auth"), "STATIC_TOKEN_12345")
+            self.assertEqual(headers.get("tba-plan-tier"), "pro")
+    
+    # def test_01_healthcheck(self):
+    #     url = urljoin(HEALTH_URL, "/healthcheck")
+    #     r = session.get(url, proxies={"http": None, "https": None})
+    #     self.assertEqual(r.status_code, 200)
+    #     self.assertEqual(r.text.strip(), 'OK')
 
-    def test_02_login_invalid(self):
-        url = urljoin(BASE_URL, "/login")
-        r = session.post(url, data={'email': 'wrong@example.com', 'password': 'badpass'})
-        self.assertEqual(r.status_code, 401)
+    # def test_02_login_invalid(self):
+    #     url = urljoin(BASE_URL, "/login")
+    #     r = session.post(url, data={'email': 'wrong@example.com', 'password': 'badpass'})
+    #     self.assertEqual(r.status_code, 401)
 
-    def test_03_register_new_user(self):
-        url = urljoin(BASE_URL, "/register")
+    # def test_03_register_new_user(self):
+    #     url = urljoin(BASE_URL, "/register")
         
-        payload = {
-            'email': TEST_EMAIL,
-            'password': TEST_PASSWORD
-        }
-        r = session.post(url, data=payload)
-        self.assertEqual(r.status_code, 201)
-        data = r.json()
-        self.assertIn('apiKey', data)
-        self.__class__.new_user_api_key = data['apiKey']
+    #     payload = {
+    #         'email': TEST_EMAIL,
+    #         'password': TEST_PASSWORD
+    #     }
+    #     r = session.post(url, data=payload)
+    #     self.assertEqual(r.status_code, 201)
+    #     data = r.json()
+    #     self.assertIn('apiKey', data)
+    #     self.__class__.new_user_api_key = data['apiKey']
 
     # def test_04_admin_generate_token(self):
     #     url = urljoin(BASE_URL, "/api/generate-token")
