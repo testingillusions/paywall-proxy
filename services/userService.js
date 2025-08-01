@@ -17,33 +17,36 @@ async function findUserByEmail(email) {
 }
 
 // services/userService.js
-async function upsertUserKey(userIdentifier, apiKey, status) {
+async function upsertUserKey(userIdentifier, apiKey, status, passwordHash = null) {
   const db = getDb();
   const [existing] = await db.query(
     'SELECT id FROM users WHERE user_identifier = ?',
     [userIdentifier]
   );
+
   if (existing.length) {
-    // Only include api_key in the UPDATE if apiKey is non-null
-    if (apiKey !== null) {
-      await db.query(
-        'UPDATE users SET api_key = ?, subscription_status = ?, updated_at = NOW() WHERE id = ?',
-        [apiKey, status, existing[0].id]
-      );
-    } else {
-      await db.query(
-        'UPDATE users SET subscription_status = ?, updated_at = NOW() WHERE id = ?',
-        [status, existing[0].id]
-      );
+    const fields = ['subscription_status = ?', 'updated_at = NOW()'];
+    const values = [status];
+
+    if (apiKey) {
+      fields.unshift('api_key = ?');
+      values.unshift(apiKey);
     }
-  } else {
-    // on INSERT, you should always have an apiKey
+    if (passwordHash) {
+      fields.unshift('password_hash = ?');
+      values.unshift(passwordHash);
+    }
+
     await db.query(
-      'INSERT INTO users (user_identifier, api_key, subscription_status) VALUES (?, ?, ?)',
-      [userIdentifier, apiKey, status]
+      `UPDATE users SET ${fields.join(', ')} WHERE id = ?`,
+      [...values, existing[0].id]
+    );
+  } else {
+    await db.query(
+      'INSERT INTO users (user_identifier, api_key, subscription_status, password_hash, email) VALUES (?, ?, ?, ?, ?)',
+      [userIdentifier, apiKey, status, passwordHash, userIdentifier]
     );
   }
 }
-
 
 module.exports = { findUserByApiKey, findUserByEmail, upsertUserKey };

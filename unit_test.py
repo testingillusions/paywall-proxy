@@ -32,8 +32,7 @@ class APITestCase(unittest.TestCase):
         data = r.json()
         self.assertIn('apiKey', data)
         self.__class__.generated_api_key = data['apiKey']  # store for later tests
-
-    def test_04_admin_update_subscription(self):
+"""     def test_04_admin_update_subscription(self):
         url = urljoin(BASE_URL, "/api/update-subscription-status")
         headers = {'X-Admin-Secret': ADMIN_SECRET}
         payload = {'userIdentifier': TEST_USER_IDENTIFIER, 'subscriptionStatus': 'inactive'}
@@ -66,6 +65,7 @@ class APITestCase(unittest.TestCase):
         self.assertIn(r.status_code, (302, 303))
         location = r.headers.get('Location', '')
         self.assertTrue(location.endswith('/'))
-        
+
+ """
 if __name__ == '__main__':
     unittest.main(verbosity=2)

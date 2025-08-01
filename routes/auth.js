@@ -3,7 +3,7 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const router = express.Router();
 const { jwtSecret, appBaseUrl } = require('../config');
-const { findUserByEmail, findUserByApiKey } = require('../services/userService');
+const { upsertUserKey, findUserByEmail, findUserByApiKey } = require('../services/userService');
 const { generateToken, consumeToken } = require('../services/tokenService');
 
 router.get('/login', (req, res) => {
@@ -29,9 +29,20 @@ router.post('/login', express.urlencoded({ extended: true }), async (req, res) =
   res.redirect('/');
 });
 
-router.post('/register', express.urlencoded({ extended:true }), async (req, res) => {
-  // registration via admin
-  res.status(404).send('Use admin endpoint');
+router.post('/register', express.urlencoded({ extended: true }), async (req, res) => {
+  const { email, password } = req.body;
+
+  if (!email || !password) {
+    return res.status(400).send('Missing email or password');
+  }
+
+  const passwordHash = await bcrypt.hash(password, 10);
+  const userIdentifier = email;
+  const apiKey = crypto.randomBytes(32).toString('hex');
+
+  await upsertUserKey(userIdentifier, apiKey, 'active', passwordHash);
+
+  res.status(201).json({ message: 'User registered', apiKey });
 });
 
 router.get('/auth-launch', async (req, res) => {
