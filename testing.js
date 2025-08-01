@@ -3,23 +3,25 @@ const express = require('express');
 const { createProxyMiddleware } = require('http-proxy-middleware');
 
 const app = express();
+const PORT = 3000;
 
-// Change this to wherever you want to forward traffic
-const TARGET_URL = 'https://echo.free.beeceptor.com';
+// ① Point this at your Beeceptor endpoint (or any https://… you want)
+const TARGET = 'https://echo.free.beeceptor.com';
 
 app.use(
   '/',
   createProxyMiddleware({
-    target: TARGET_URL,
+    target: TARGET,
     changeOrigin: true,
+    secure: true,        // verify SSL certs
+    logLevel: 'debug',   // so you can see onProxyReq logs
     onProxyReq: (proxyReq, req, res) => {
-      // Add or overwrite a header on the outgoing (proxied) request:
       proxyReq.setHeader('X-Added-Header', 'my-custom-value');
-    }
+      console.log('👉 Injected X-Added-Header into proxied request');
+    },
   })
 );
 
-const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`🚀 Proxy listening on http://localhost:${PORT} → ${TARGET_URL}`);
+  console.log(`Proxy listening on http://localhost:${PORT} → ${TARGET}`);
 });
