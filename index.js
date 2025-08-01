@@ -26,6 +26,9 @@ async function start() {
   app.use(authRouter);
   app.use(adminRouter);
 
+  // index.js, before any middleware
+  app.set('trust proxy', 1);
+
   app.use(paywall);
   app.use(rateLimiter);
   app.use('/', proxyMiddleware);

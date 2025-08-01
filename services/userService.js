@@ -16,6 +16,7 @@ async function findUserByEmail(email) {
   return rows[0];
 }
 
+// services/userService.js
 async function upsertUserKey(userIdentifier, apiKey, status) {
   const db = getDb();
   const [existing] = await db.query(
@@ -23,16 +24,26 @@ async function upsertUserKey(userIdentifier, apiKey, status) {
     [userIdentifier]
   );
   if (existing.length) {
-    await db.query(
-      'UPDATE users SET api_key = ?, subscription_status = ?, updated_at = NOW() WHERE id = ?',
-      [apiKey, status, existing[0].id]
-    );
+    // Only include api_key in the UPDATE if apiKey is non-null
+    if (apiKey !== null) {
+      await db.query(
+        'UPDATE users SET api_key = ?, subscription_status = ?, updated_at = NOW() WHERE id = ?',
+        [apiKey, status, existing[0].id]
+      );
+    } else {
+      await db.query(
+        'UPDATE users SET subscription_status = ?, updated_at = NOW() WHERE id = ?',
+        [status, existing[0].id]
+      );
+    }
   } else {
+    // on INSERT, you should always have an apiKey
     await db.query(
       'INSERT INTO users (user_identifier, api_key, subscription_status) VALUES (?, ?, ?)',
       [userIdentifier, apiKey, status]
     );
   }
 }
+
 
 module.exports = { findUserByApiKey, findUserByEmail, upsertUserKey };
