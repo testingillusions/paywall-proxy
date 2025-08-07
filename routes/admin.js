@@ -24,4 +24,22 @@ router.post('/api/update-subscription-status', adminAuth, async (req, res) => {
   res.json({ userIdentifier, subscriptionStatus });
 });
 
+router.post('/register', express.urlencoded({ extended: true }), async (req, res) => {
+  const { email, password } = req.body;
+
+  if (!email || !password) {
+    return res.status(400).send('Missing email or password');
+  }
+
+  const passwordHash = await bcrypt.hash(password, 10);
+  const userIdentifier = email;
+  const apiKey = crypto.randomBytes(32).toString('hex');
+
+  await upsertUserKey(userIdentifier, apiKey, 'active', passwordHash);
+
+  res.status(201).json({ message: 'User registered', apiKey });
+});
+
+
+
 module.exports = router;

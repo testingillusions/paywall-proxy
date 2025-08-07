@@ -21,7 +21,7 @@ app.use(express.json());
 app.use(cookieParser());
 
 // 🔐 Auth check: verifies JWT cookie
-app.get('/api/auth', (req, res) => {
+app.all('/api/auth', (req, res) => {
     const token = req.cookies['auth_token'];
 
     if (!token) {

@@ -3,10 +3,12 @@ const crypto = require('crypto');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const router = express.Router();
-const { jwtSecret, appBaseUrl } = require('../config');
+const { jwtSecret, appBaseUrl,vueAPI} = require('../config');
 const { upsertUserKey, findUserByEmail, findUserByApiKey } = require('../services/userService');
 const { generateToken, consumeToken } = require('../services/tokenService');
 
+
+// Paths for Login via Username/Password
 router.get('/login', (req, res) => {
   res.send(`
     <form method="POST" action="/login">
@@ -27,34 +29,70 @@ router.post('/login', express.urlencoded({ extended: true }), async (req, res) =
     return res.status(403).send('Inactive');
   const token = jwt.sign({ api_key: user.api_key }, jwtSecret, { expiresIn:'1h' });
   res.cookie('auth_token', token, { httpOnly:true, secure:true, sameSite:'lax' });
-  res.redirect('/');
+  res.send(200, { message: 'Login successful' });
 });
 
-router.post('/register', express.urlencoded({ extended: true }), async (req, res) => {
-  const { email, password } = req.body;
 
-  if (!email || !password) {
-    return res.status(400).send('Missing email or password');
-  }
-
-  const passwordHash = await bcrypt.hash(password, 10);
-  const userIdentifier = email;
-  const apiKey = crypto.randomBytes(32).toString('hex');
-
-  await upsertUserKey(userIdentifier, apiKey, 'active', passwordHash);
-
-  res.status(201).json({ message: 'User registered', apiKey });
-});
-
-router.get('/auth-launch', async (req, res) => {
-  const raw = req.query.token || req.headers['vue-auth'];
-  const apiKey = consumeToken(raw) || (await findUserByApiKey(req.headers['vue-email']))?.api_key;
+// Path for Vue Launch
+// Requires VUE API Key and Email in headers
+router.get('/api/vue-launch', async (req, res) => {
+  const vueAuthToken = req.headers['vue-auth'];
+  if (!vueAuthToken) return res.status(403).send('Forbidden');
+  if (vueAuthToken !== vueAPI) return res.status(403).send('Forbidden');
+  
+  // Get API key from Proxy DB
+  const apiKey = (await findUserByApiKey(req.headers['vue-email']))?.api_key;
   if (!apiKey) return res.status(403).send('Forbidden');
-  const jwtToken = jwt.sign({ api_key: apiKey }, jwtSecret, { expiresIn:'1h' });
-  res.cookie('auth_token', jwtToken, { httpOnly:true, secure:true, sameSite:'lax' });
-  res.redirect('/');
+  const jwtToken = jwt.sign({ api_key: apiKey, email: req.headers['vue-email']}, jwtSecret, { expiresIn:'1h' });
+  res.cookie('auth_token', jwtToken, { httpOnly:true, secure:true, sameSite:'lax',path: '/' });
+  res.send(`
+    <html>
+      <head>
+        <title>Redirecting...</title>
+        <script>
+          // Break out of iframe and go to secured path
+          if (window.top !== window.self) {
+            window.top.location = 'http://tba.testingillusions.com/';
+          } else {
+            window.location = 'http://tba.testingillusions.com/';
+          }
+        </script>
+      </head>
+      <body>
+        Redirecting...
+      </body>
+    </html>
+  `);
 });
 
+
+// Path for Auth Check from NGINX
+// Requires JWT cookie
+// Returns 401 if no cookie or invalid
+// Returns 200 with email in header if valid
+router.all('/api/auth', (req, res) => {
+    const token = req.cookies['auth_token'];
+
+    if (!token) {
+        return res.status(401).json({ message: 'Unauthorized: No token' });
+    }
+
+    try {
+        const decoded = jwt.verify(token, jwtSecret);
+        res.set('X-Authenticated-Email', decoded.email);
+        return res.status(200).json({ user: decoded.email });
+
+    } catch (err) {
+        return res.status(401).json({ message: 'Unauthorized: Invalid token' });
+    }
+});
+
+
+
+module.exports = router;
+
+
+/* 
 router.get('/api/create-launch-token', async (req, res) => {
   const auth = req.headers.authorization;
   const apiKey = auth?.split(' ')[1];
@@ -64,5 +102,4 @@ router.get('/api/create-launch-token', async (req, res) => {
   const token = generateToken(apiKey);
   res.json({ launch_url: `${appBaseUrl}/auth-launch?token=${token}` });
 });
-
-module.exports = router;
+ */
