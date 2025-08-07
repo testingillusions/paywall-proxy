@@ -24,14 +24,19 @@ async function start() {
   app.use(adminRouter);
 
   
-
-  
   app.use(errorHandler);
+
+  const server = (
+    config.useHttps
+      ? require('https').createServer(config.sslOptions, app)
+      : require('http').createServer(app)
+  );
 
   server.listen(config.port, () => {
     console.log(`Server listening on port ${config.port}`);
-  });
-}
+  } );
+  
+  }
 
 start().catch(err => {
   console.error('Failed to start server', err);
