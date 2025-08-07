@@ -11,7 +11,6 @@ const errorHandler = require('./middleware/errorHandler');
 const healthRouter = require('./routes/health');
 const authRouter = require('./routes/auth');
 const adminRouter = require('./routes/admin');
-const proxyMiddleware = require('./routes/proxy');
 
 async function start() {
   await initDb();
