@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const bcrypt = require('bcrypt');
 const { adminSecret } = require('../config');
 const { upsertUserKey } = require('../services/userService');
 
@@ -24,7 +25,7 @@ router.post('/api/update-subscription-status', adminAuth, async (req, res) => {
   res.json({ userIdentifier, subscriptionStatus });
 });
 
-router.post('api/register', express.urlencoded({ extended: true }), async (req, res) => {
+router.post('/api/register', express.urlencoded({ extended: true }), async (req, res) => {
   const { email, password } = req.body;
 
   if (!email || !password) {
