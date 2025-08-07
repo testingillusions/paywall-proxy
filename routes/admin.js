@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcrypt');
+const crypto = require('crypto');
 const { adminSecret } = require('../config');
 const { upsertUserKey } = require('../services/userService');
 
@@ -13,7 +14,7 @@ function adminAuth(req, res, next) {
 router.post('/api/generate-token', adminAuth, async (req, res) => {
   const { userIdentifier, subscriptionStatus='active' } = req.body;
   if (!userIdentifier) return res.status(400).json({ error:'userIdentifier required' });
-  const apiKey = require('crypto').randomBytes(32).toString('hex');
+  const apiKey = crypto.randomBytes(32).toString('hex');
   await upsertUserKey(userIdentifier, apiKey, subscriptionStatus);
   res.json({ userIdentifier, apiKey, subscriptionStatus });
 });
