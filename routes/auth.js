@@ -9,7 +9,7 @@ const { generateToken, consumeToken } = require('../services/tokenService');
 
 
 // Paths for Login via Username/Password
-router.get('/login', (req, res) => {
+router.get('/api/login', (req, res) => {
   res.send(`
     <form method="POST" action="/login">
       <input name="email"    type="email"    placeholder="Email"    required />
@@ -19,7 +19,7 @@ router.get('/login', (req, res) => {
   `);
 });
 
-router.post('/login', express.urlencoded({ extended: true }), async (req, res) => {
+router.post('/api/login', express.urlencoded({ extended: true }), async (req, res) => {
   const { email, password } = req.body;
   const user = await findUserByEmail(email);
   console.log('Login attempt for:', email, 'User found:', !!user);
