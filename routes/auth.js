@@ -41,7 +41,7 @@ router.get('/api/vue-launch', async (req, res) => {
   if (vueAuthToken !== vueAPI) return res.status(403).send('Forbidden-002');
   
   // Get API key from Proxy DB
-  const apiKey = (await findUserByApiKey(req.headers['vue-email']))?.api_key;
+  const apiKey = (await findUserByEmail(req.headers['vue-email']))?.api_key;
   if (!apiKey) return res.status(403).send('Forbidden-003');
   const jwtToken = jwt.sign({ api_key: apiKey, email: req.headers['vue-email']}, jwtSecret, { expiresIn:'1h' });
   res.cookie('auth_token', jwtToken, { httpOnly:true, secure:true, sameSite:'lax',path: '/' });
