@@ -24,4 +24,5 @@ module.exports = {
   jwtSecret: process.env.JWT_SECRET,
   adminSecret: process.env.ADMIN_SECRET_KEY,
   appBaseUrl: process.env.APP_BASE_URL,
+  vueAPI: process.env.VUE_API
 };
