@@ -11,11 +11,51 @@ const { generateToken, consumeToken } = require('../services/tokenService');
 // Paths for Login via Username/Password
 router.get('/api/login', (req, res) => {
   res.send(`
-    <form method="POST" action="/api/login">
-      <input name="email"    type="email"    placeholder="Email"    required />
-      <input name="password" type="password" placeholder="Password" required />
-      <button type="submit">Log In</button>
-    </form>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Login</title>
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+      rel="stylesheet"
+    >
+    <style>
+        body {
+            background-color: #f8f9fa;
+        }
+        .login-container {
+            max-width: 400px;
+            margin: 80px auto;
+            padding: 30px;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="login-container">
+            <img src="/images/tba_logo.png" alt="The Benefits Academy" class="logo">
+            <h2 class="text-center mb-4">Login</h2>
+            <form method="POST" action="/login">
+                <div class="mb-3">
+                    <label for="email" class="form-label">Email address</label>
+                    <input type="email" class="form-control" name="email" id="email" required>
+                </div>
+                <div class="mb-3">
+                    <label for="password" class="form-label">Password</label>
+                    <input type="password" class="form-control" name="password" id="password" required>
+                </div>
+                <div class="d-grid">
+                    <button type="submit" class="btn btn-primary">Sign In</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</body>
+</html>
   `);
 });
 
@@ -46,24 +86,151 @@ router.get('/api/vue-launch', async (req, res) => {
   const jwtToken = jwt.sign({ api_key: apiKey, email: req.headers['vue-email']}, jwtSecret, { expiresIn:'1h' });
   res.cookie('auth_token', jwtToken, { httpOnly:true, secure:true, sameSite:'lax',path: '/' });
   res.send(`
-    <html>
-      <head>
-        <title>Redirecting...</title>
-        <script>
-          // Break out of iframe and go to secured path
-          if (window.top !== window.self) {
-            window.top.location = '${targetUrl}';
-          } else {
-            window.location = '${targetUrl}';
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Redirecting to Plan Comparison Tool</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <style>
+    html, body {
+     height: 100%;
+     margin: 0;
+     padding: 0;
+    }
+    body {
+        margin: 0;
+        padding: 16px;
+        font-family: Arial, sans-serif;
+        background: #f7f9fc;
+    }
+
+    .container {
+      text-align: center;
+      padding: 30px;
+      border-radius: 10px;
+      background-color: #fff;
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+    }
+
+    h1 {
+      font-size: 1.5rem;
+      margin-bottom: 10px;
+    }
+
+    p {
+      font-size: 1rem;
+      margin-bottom: 20px;
+    }
+
+    .loader {
+      border: 4px solid #f3f3f3;
+      border-top: 4px solid #007BFF;
+      border-radius: 50%;
+      width: 30px;
+      height: 30px;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 20px;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    button {
+      background-color: #007BFF;
+      color: #fff;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 5px;
+      font-size: 1rem;
+      cursor: pointer;
+      transition: background-color 0.3s ease;
+    }
+    
+    button:hover {
+      background-color: #0056b3;
+    }
+    .container {
+        margin-top: 0;
+        padding-top: 0;
+    }
+    .loader {
+        margin-bottom: 16px;
+    }
+    .inline-redirect {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        flex-wrap: wrap; /* ensures wrapping on narrow iframes */
+    }
+
+    .inline-redirect p {
+        margin: 0;
+        font-size: 0.95rem;
+    }
+
+    .inline-redirect button {
+        padding: 6px 12px;
+        font-size: 0.9rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="loader"></div>
+    <h1>Redirecting to the Plan Comparison Tool...</h1>
+    <div class="inline-redirect">
+        <p>If you are not redirected within a few seconds, click here:</p>
+        <button id="goButton">Load PCT</button>
+    </div>
+  </div>
+
+  <script>
+    
+    async function redirectToTool() {
+      try {
+        const response = await fetch('http://ec2-44-200-40-252.compute-1.amazonaws.com', {
+          method: 'GET',
+          headers: {
+            'Authorization': 'Bearer ${apiKey}'
           }
-        </script>
-      </head>
-      <body>
-        Redirecting...
-      </body>
-    </html>
-  `);
-});
+        });
+
+        if (!response.ok) {
+          throw new Error('Server responded with ' + response.statusText);
+        }
+
+        const data = await response.json();
+        console.log('Launch URL:', data.launch_url);
+
+        if (data.launch_url) {
+          if (window.top !== window.self) {
+            window.top.location = data.launch_url;
+          } else {
+            window.location.href = data.launch_url;
+          }
+        } else {
+          alert('launch_url not found in response');
+        }
+      } catch (error) {
+        console.error('Error:', error);
+        alert('An error occurred while redirecting. Check console for details.');
+      }
+    }
+
+    document.getElementById('goButton').addEventListener('click', redirectToTool);
+
+    // Automatically redirect after 3 seconds
+    window.onload = function () {
+      setTimeout(redirectToTool, 3000);
+    };
+  </script>
+</body>
+</html>		`)
+	    });
 
 
 // Path for Auth Check from NGINX
