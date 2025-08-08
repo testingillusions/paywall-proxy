@@ -3,7 +3,7 @@ const crypto = require('crypto');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const router = express.Router();
-const { jwtSecret, appBaseUrl,vueAPI} = require('../config');
+const { jwtSecret, targetUrl,vueAPI} = require('../config');
 const { upsertUserKey, findUserByEmail, findUserByApiKey } = require('../services/userService');
 const { generateToken, consumeToken } = require('../services/tokenService');
 
@@ -11,7 +11,7 @@ const { generateToken, consumeToken } = require('../services/tokenService');
 // Paths for Login via Username/Password
 router.get('/api/login', (req, res) => {
   res.send(`
-    <form method="POST" action="/login">
+    <form method="POST" action="/api/login">
       <input name="email"    type="email"    placeholder="Email"    required />
       <input name="password" type="password" placeholder="Password" required />
       <button type="submit">Log In</button>
@@ -52,9 +52,9 @@ router.get('/api/vue-launch', async (req, res) => {
         <script>
           // Break out of iframe and go to secured path
           if (window.top !== window.self) {
-            window.top.location = 'http://tba.testingillusions.com/';
+            window.top.location = '${targetUrl}';
           } else {
-            window.location = 'http://tba.testingillusions.com/';
+            window.location = '${targetUrl}';
           }
         </script>
       </head>
