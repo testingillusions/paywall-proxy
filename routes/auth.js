@@ -89,13 +89,11 @@ router.get('/api/vue-redirect', (req, res) => {
   
 // Generate JWT token for the user
   const jwtToken = jwt.sign({ api_key: apiKey, email: email}, jwtSecret, { expiresIn:'1h' });
-  res.cookie('auth_token', jwtToken, {
-      httpOnly: true,
-      secure: false,        // required with SameSite=None
-      sameSite: 'Lax',    // exact case/casing
-      path: '/',
-      domain: targetURI,
-      maxAge: 3600000 // add this explicitly
+  res.cookie('auth_token', token, {
+        httpOnly: true,
+        secure: false, // Change to true for HTTPS
+        sameSite: 'Lax',
+        maxAge: 3600000
   });
   res.status(200).send(`
     <html><head><script>
