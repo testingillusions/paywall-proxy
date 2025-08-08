@@ -15,7 +15,7 @@ function consumeToken(token) {
   const entry = launchTokens.get(token);
   if (!entry || Date.now() > entry.expires) return null;
   launchTokens.delete(token);
-  return [entry.apiKey, entry.email];
+  return entry.apiKey, entry.email;
 }
 
 module.exports = { generateToken, consumeToken };
