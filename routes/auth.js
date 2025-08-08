@@ -95,7 +95,7 @@ router.get('/api/vue-redirect', (req, res) => {
       path: '/',
       domain: targetURI, // add this explicitly
   });
-  res.json({launch_url: `${targetUrl}`}); 
+  res.status(200).json({launch_url: `${targetUrl}`}); 
 });
 
 // Requires VUE API Key and Email in headers
