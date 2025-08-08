@@ -91,10 +91,11 @@ router.get('/api/vue-redirect', (req, res) => {
   const jwtToken = jwt.sign({ api_key: apiKey, email: email}, jwtSecret, { expiresIn:'1h' });
   res.cookie('auth_token', jwtToken, {
       httpOnly: true,
-      secure: true,        // required with SameSite=None
-      sameSite: 'None',    // exact case/casing
+      secure: false,        // required with SameSite=None
+      sameSite: 'Lax',    // exact case/casing
       path: '/',
-      domain: targetURI, // add this explicitly
+      domain: targetURI,
+      maxAge: 3600000 // add this explicitly
   });
   res.status(200).send(`
     <html><head><script>
