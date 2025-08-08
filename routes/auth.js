@@ -96,7 +96,7 @@ router.get('/api/vue-redirect', (req, res) => {
       path: '/',
       domain: targetURI, // add this explicitly
   });
-  res.status(200).res.send(`
+  res.status(200).send(`
     <html><head><script>
       setTimeout(function(){
         if (window.top !== window.self) window.top.location = '/';
