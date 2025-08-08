@@ -3,7 +3,7 @@ const crypto = require('crypto');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const router = express.Router();
-const { jwtSecret, targetURI,vueAPI} = require('../config');
+const { jwtSecret, targetUrl,targetURI,vueAPI, targetUrl} = require('../config');
 const { upsertUserKey, findUserByEmail, findUserByApiKey } = require('../services/userService');
 const { generateToken, consumeToken } = require('../services/tokenService');
 
@@ -95,7 +95,7 @@ router.get('/api/vue-redirect', (req, res) => {
       path: '/',
       domain: targetURI, // add this explicitly
   });
-  res.send(200);
+  res.redirect(`${targetUrl}/`); 
 });
 
 // Requires VUE API Key and Email in headers
