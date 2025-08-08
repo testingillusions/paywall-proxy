@@ -253,7 +253,7 @@ router.get('/api/vue-launch', async (req, res) => {
 // Returns 401 if no cookie or invalid
 // Returns 200 with email in header if valid
 router.all('/api/auth', (req, res) => {
-    console.log('DEBUG: Auth check called', req.cookies);
+    console.log('DEBUG: Auth check called', req);
     const token = req.cookies['auth_token'];
 
     if (!token) {
