@@ -75,10 +75,15 @@ router.post('/api/login', express.urlencoded({ extended: true }), async (req, re
 
 // Path for Vue Launch
 router.get('/api/vue-redirect', (req, res) => {
+  //confirm token is provided
   const token = req.query.token;
   if (!token) return res.status(400).send('Bad Request: Missing token');  
-  apiKey, email = consumeToken(token);
+  
+  // Consume the token to get API key and email
+  const { apiKey, email } = consumeToken(token);
   if (!apiKey || !email) return res.status(403).send('Forbidden: Invalid or expired token');
+  
+// Generate JWT token for the user
   const jwtToken = jwt.sign({ api_key: apiKey, email: email}, jwtSecret, { expiresIn:'1h' });
   res.cookie('auth_token', jwtToken, {
       httpOnly: true,
