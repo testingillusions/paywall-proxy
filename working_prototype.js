@@ -22,6 +22,7 @@ app.use(cookieParser());
 
 // 🔐 Auth check: verifies JWT cookie
 app.all('/api/auth', (req, res) => {
+    console.log('DEBUG: Auth check called', req);
     const token = req.cookies['auth_token'];
 
     if (!token) {
