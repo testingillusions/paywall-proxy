@@ -3,7 +3,7 @@ const crypto = require('crypto');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const router = express.Router();
-const { jwtSecret, targetUrl,vueAPI} = require('../config');
+const { jwtSecret, targetURI,vueAPI} = require('../config');
 const { upsertUserKey, findUserByEmail, findUserByApiKey } = require('../services/userService');
 const { generateToken, consumeToken } = require('../services/tokenService');
 
@@ -89,7 +89,7 @@ router.get('/api/vue-launch', async (req, res) => {
       secure: true,        // required with SameSite=None
       sameSite: 'None',    // exact case/casing
       path: '/',
-      domain: targetUrl, // add this explicitly
+      domain: targetURI, // add this explicitly
   });
   
   res.send(`
