@@ -6,6 +6,7 @@ const router = express.Router();
 const { jwtSecret,targetURI,vueAPI, targetUrl} = require('../config');
 const { upsertUserKey, findUserByEmail, findUserByApiKey } = require('../services/userService');
 const { generateToken, consumeToken } = require('../services/tokenService');
+const { send } = require('process');
 
 
 // Paths for Login via Username/Password
@@ -95,7 +96,14 @@ router.get('/api/vue-redirect', (req, res) => {
       path: '/',
       domain: targetURI, // add this explicitly
   });
-  res.status(200).json({launch_url: `${targetUrl}`}); 
+  res.status(200).res.send(`
+    <html><head><script>
+      setTimeout(function(){
+        if (window.top !== window.self) window.top.location = '/';
+        else window.location = '/';
+      }, 50);
+    </script></head><body>Redirecting…</body></html>
+  `);
 });
 
 // Requires VUE API Key and Email in headers
@@ -218,27 +226,10 @@ router.get('/api/vue-launch', async (req, res) => {
   <script>
     
     async function redirectToTool() {
-      try {
-        const response = await fetch('http://ec2-44-200-40-252.compute-1.amazonaws.com/api/vue-redirect?token=${token}', {
-          method: 'GET' });
-
-        if (!response.ok) {
-          throw new Error('Server responded with ' + response.statusText);
-        }
-
-        const data = await response.json();
-        console.log('Launch URL:', data.launch_url);
-
-        if (data.launch_url) {
-          if (window.top !== window.self) {
-            window.top.location = data.launch_url;
-          } else {
-            window.location.href = data.launch_url;
-          }
-        } else {
-          alert('launch_url not found in response');
-        }
-      } catch (error) {
+        try { 
+        window.location.href = 'http://ec2-44-200-40-252.compute-1.amazonaws.com/api/vue-redirect?token=${token}';
+        } 
+       catch (error) {
         console.error('Error:', error);
         alert('An error occurred while redirecting. Check console for details.');
       }
