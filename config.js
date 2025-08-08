@@ -15,6 +15,7 @@ module.exports = {
   port: parseInt(process.env.PORT, 10),
   useHttps: process.env.USE_HTTPS === 'true',
   targetUrl: process.env.TARGET_URL,
+  targetURI: process.env.TARGET_URI,
   db: {
     host: process.env.DB_HOST,
     user: process.env.DB_USER,
