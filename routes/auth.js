@@ -101,7 +101,7 @@ router.get('/api/vue-redirect', (req, res) => {
       setTimeout(function(){
         if (window.top !== window.self) window.top.location = '/';
         else window.location = '/';
-      }, 50);
+      }, 3000);
     </script></head><body>Redirecting…</body></html>
   `);
 });
