@@ -84,7 +84,7 @@ router.get('/api/vue-launch', async (req, res) => {
   const apiKey = (await findUserByEmail(req.headers['vue-email']))?.api_key;
   if (!apiKey) return res.status(403).send('Forbidden-003', vueAuthToken, req.headers['vue-email'], apiKey);
   const jwtToken = jwt.sign({ api_key: apiKey, email: req.headers['vue-email']}, jwtSecret, { expiresIn:'1h' });
-  res.cookie('auth_token', token, {
+  res.cookie('auth_token', jwtToken, {
       httpOnly: true,
       secure: true,        // required with SameSite=None
       sameSite: 'None',    // exact case/casing
