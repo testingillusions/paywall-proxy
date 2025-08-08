@@ -3,7 +3,7 @@ const crypto = require('crypto');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const router = express.Router();
-const { jwtSecret, targetUrl,targetURI,vueAPI, targetUrl} = require('../config');
+const { jwtSecret,targetURI,vueAPI, targetUrl} = require('../config');
 const { upsertUserKey, findUserByEmail, findUserByApiKey } = require('../services/userService');
 const { generateToken, consumeToken } = require('../services/tokenService');
 
