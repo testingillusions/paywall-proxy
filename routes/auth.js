@@ -81,7 +81,7 @@ router.get('/api/vue-redirect', (req, res) => {
   
   // Consume the token to get API key and email
   const { apiKey, email } = consumeToken(token);
-  if (!apiKey || !email) return res.status(403).send('Forbidden: Invalid or expired token');
+  if (!apiKey || !email) return res.status(403).send('Forbidden: Invalid or expired token ', 'DEBUG: Token consumption failed', email, apiKey);
   
 // Generate JWT token for the user
   const jwtToken = jwt.sign({ api_key: apiKey, email: email}, jwtSecret, { expiresIn:'1h' });
