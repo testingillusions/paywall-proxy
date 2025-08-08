@@ -18,7 +18,7 @@ function consumeToken(token) {
   console.log(`Token entry details: ${JSON.stringify(entry)}`);
   if (!entry || Date.now() > entry.expires) return null;
   launchTokens.delete(token);
-  return entry.apiKey, entry.email;
+  return { apiKey: entry.apiKey, email: entry.email };
 }
 
 module.exports = { generateToken, consumeToken };

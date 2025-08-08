@@ -80,7 +80,9 @@ router.get('/api/vue-redirect', (req, res) => {
   if (!token) return res.status(400).send('Bad Request: Missing token');  
   
   // Consume the token to get API key and email
-  const { apiKey, email } = consumeToken(token);
+  const data = consumeToken(token);
+  if (!data) return res.status(403).send('Forbidden: Invalid or expired token');
+  const { apiKey, email } = data;
   if (!email) return res.status(403).send('Forbidden: Missing email in token');
   if (!apiKey) return res.status(403).send('Forbidden: Missing API key in token');
   
