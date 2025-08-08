@@ -74,6 +74,22 @@ router.post('/api/login', express.urlencoded({ extended: true }), async (req, re
 
 
 // Path for Vue Launch
+router.get('/api/vue-redirect', (req, res) => {
+  const token = req.query.token;
+  if (!token) return res.status(400).send('Bad Request: Missing token');  
+  apiKey, email = consumeToken(token);
+  if (!apiKey || !email) return res.status(403).send('Forbidden: Invalid or expired token');
+  const jwtToken = jwt.sign({ api_key: apiKey, email: email}, jwtSecret, { expiresIn:'1h' });
+  res.cookie('auth_token', jwtToken, {
+      httpOnly: true,
+      secure: true,        // required with SameSite=None
+      sameSite: 'None',    // exact case/casing
+      path: '/',
+      domain: targetURI, // add this explicitly
+  });
+  res.send(200);
+});
+
 // Requires VUE API Key and Email in headers
 router.get('/api/vue-launch', async (req, res) => {
   const vueAuthToken = req.headers['vue-auth'];
@@ -82,16 +98,12 @@ router.get('/api/vue-launch', async (req, res) => {
   
   // Get API key from Proxy DB
   const apiKey = (await findUserByEmail(req.headers['vue-email']))?.api_key;
-  if (!apiKey) return res.status(403).send('Forbidden-003', vueAuthToken, req.headers['vue-email'], apiKey);
-  const jwtToken = jwt.sign({ api_key: apiKey, email: req.headers['vue-email']}, jwtSecret, { expiresIn:'1h' });
-  res.cookie('auth_token', jwtToken, {
-      httpOnly: true,
-      secure: true,        // required with SameSite=None
-      sameSite: 'None',    // exact case/casing
-      path: '/',
-      domain: targetURI, // add this explicitly
-  });
+  const email = req.headers['vue-email'];
+  if (!email) return res.status(403).send('Forbidden-004');
+  if (!apiKey) return res.status(403).send('Forbidden-003');
   
+  const token = generateToken(apiKey, email);
+
   res.send(`
 <!DOCTYPE html>
 <html lang="en">
@@ -199,12 +211,8 @@ router.get('/api/vue-launch', async (req, res) => {
     
     async function redirectToTool() {
       try {
-        const response = await fetch('http://ec2-44-200-40-252.compute-1.amazonaws.com', {
-          method: 'GET',
-          headers: {
-            'Authorization': 'Bearer ${apiKey}'
-          }
-        });
+        const response = await fetch('http://ec2-44-200-40-252.compute-1.amazonaws.com/api/vue-redirect?token=${token}', {
+          method: 'GET' });
 
         if (!response.ok) {
           throw new Error('Server responded with ' + response.statusText);
