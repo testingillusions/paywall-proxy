@@ -681,6 +681,9 @@ const apiProxy = createProxyMiddleware({
     target: TARGET_URL,
     changeOrigin: true,
     logLevel: 'debug',
+    pathRewrite: {
+        '^/': '/', // Ensure root paths are handled correctly
+    },
     onProxyReq: (proxyReq, req, res) => {
         console.log(`DEBUG: *** onProxyReq FINALLY CALLED *** for URL: ${req.originalUrl}`);
         console.log(`DEBUG: Target URL: ${TARGET_URL}`);
@@ -700,6 +703,10 @@ const apiProxy = createProxyMiddleware({
             console.log('DEBUG: Set default headers for unauthenticated request - req.user is:', req.user);
         }
     },
+    onProxyRes: (proxyRes, req, res) => {
+        console.log(`DEBUG: *** onProxyRes called *** for URL: ${req.originalUrl}`);
+        console.log(`DEBUG: Response status: ${proxyRes.statusCode}`);
+    },
     onError: (err, req, res) => {
         console.error(`DEBUG: Proxy error occurred for ${req.originalUrl}:`, err.message);
         console.error(`DEBUG: Error details:`, err);
@@ -714,21 +721,8 @@ const apiProxy = createProxyMiddleware({
 // --- APPLY PAYWALL MIDDLEWARE BEFORE THE PROXY ---
 app.use(paywallMiddleware);
 
-// Debug middleware to see if we reach the proxy
-app.use('/', (req, res, next) => {
-    console.log(`DEBUG: About to call proxy for: ${req.originalUrl}`);
-    console.log(`DEBUG: req.user available:`, !!req.user);
-    console.log(`DEBUG: Request method: ${req.method}`);
-    console.log(`DEBUG: Request headers: ${JSON.stringify(req.headers)}`);
-    next();
-});
-
 // Use the proxy middleware for all requests starting with '/' (root path)
 console.log('DEBUG: Registering proxy middleware...');
-app.use('/', (req, res, next) => {
-    console.log(`DEBUG: Final middleware before proxy - calling apiProxy for ${req.originalUrl}`);
-    next();
-});
 
 // Register the proxy middleware directly
 app.use('/', apiProxy);
