@@ -237,6 +237,7 @@ const paywallMiddleware = async (req, res, next) => { // Made async to use await
                         email: decoded.email || decoded.user,
                         planTier: decoded.planTier || 'Tier1'
                     };
+                    console.log(`DEBUG: Set req.user from cookie:`, JSON.stringify(req.user, null, 2));
                     return next(); // Valid cookie and active subscription found, proceed
                 } else {
                     console.warn(`WARNING: Cookie valid but subscription status is not active for API Key: ${decoded.api_key}`);
@@ -285,6 +286,7 @@ const paywallMiddleware = async (req, res, next) => { // Made async to use await
                     email: rows[0].email || rows[0].user_identifier,
                     planTier: 'Tier1' // You can make this dynamic based on user data
                 };
+                console.log(`DEBUG: Set req.user from API key:`, JSON.stringify(req.user, null, 2));
 
                 next(); // API key is valid and active, proceed
             } else {
@@ -694,6 +696,7 @@ const apiProxy = createProxyMiddleware({
     onProxyReq: (proxyReq, req, res) => {
         // Log at the very start of onProxyReq
         console.log(`DEBUG: onProxyReq function entered for URL: ${req.originalUrl}`);
+        console.log(`DEBUG: req.user object:`, JSON.stringify(req.user, null, 2));
 
         // Inject dynamic headers if user is authenticated
         if (req.user && req.user.userIdentifier) {
@@ -705,7 +708,7 @@ const apiProxy = createProxyMiddleware({
             // Set default headers for unauthenticated requests
             proxyReq.setHeader('TBA-PLAN-TIER', 'Tier1');
             proxyReq.setHeader('VUE-AUTH', 'AE8A774F-1DE0-4F98-B037-659645706A66');
-            console.log('DEBUG: Set default headers for unauthenticated request');
+            console.log('DEBUG: Set default headers for unauthenticated request - req.user is:', req.user);
         }
 
         const urlPath = req.originalUrl; // Get the original requested URL path
