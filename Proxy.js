@@ -683,6 +683,8 @@ const apiProxy = createProxyMiddleware({
     logLevel: 'debug',
     onProxyReq: (proxyReq, req, res) => {
         console.log(`DEBUG: *** onProxyReq FINALLY CALLED *** for URL: ${req.originalUrl}`);
+        console.log(`DEBUG: Target URL: ${TARGET_URL}`);
+        console.log(`DEBUG: Proxy request path: ${proxyReq.path}`);
         console.log(`DEBUG: req.user object:`, JSON.stringify(req.user, null, 2));
 
         // Inject dynamic headers if user is authenticated
