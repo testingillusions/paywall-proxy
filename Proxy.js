@@ -225,7 +225,6 @@ const paywallMiddleware = async (req, res, next) => { // Made async to use await
     // Define paths that should NOT require an API key (e.g., static assets that are publicly accessible)
     // Also exclude the new API management endpoints from the main paywall
     const EXCLUDED_PAYWALL_PATHS = [
-        '/assets/',
         '/css/',
         '/js/',
         '/images/',
