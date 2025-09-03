@@ -860,11 +860,6 @@ app.use(paywallMiddleware);
 // Use the proxy middleware for all requests starting with '/' (root path)
 app.use('/', apiProxy);
 
-// Basic route for the root URL to show that the proxy is running
-app.get('/', (req, res) => {
-
-});
-
 
 
 // --- Server Creation (Conditional HTTP/HTTPS) ---
