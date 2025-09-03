@@ -238,12 +238,10 @@ const paywallMiddleware = async (req, res, next) => { // Made async to use await
     // Check if the current request path starts with any of the excluded paths
     const isExcludedPath = EXCLUDED_PAYWALL_PATHS.some(prefix => req.originalUrl.startsWith(prefix));
 
-    if (isExcludedPath) {
-        console.log(`INFO: Skipping main paywall for excluded path: ${req.originalUrl}`);
-        return next(); // Skip paywall check for static assets and API management endpoints
-    }
-
-    // --- Check for existing authentication cookie first ---
+    // --- ALWAYS try to authenticate the user first (even for excluded paths) ---
+    // This ensures req.user is available for header injection
+    
+    // Check for existing authentication cookie first
     const authToken = req.cookies[AUTH_COOKIE_NAME];
     if (authToken) {
         try {
@@ -261,6 +259,14 @@ const paywallMiddleware = async (req, res, next) => { // Made async to use await
                         planTier: decoded.planTier || 'Tier1'
                     };
                     console.log(`DEBUG: Set req.user from cookie:`, JSON.stringify(req.user, null, 2));
+                    
+                    // For excluded paths, skip paywall but allow headers to be injected
+                    if (isExcludedPath) {
+                        console.log(`INFO: User authenticated but skipping paywall for excluded path: ${req.originalUrl}`);
+                        console.log(`DEBUG: Calling next() to pass request to proxy middleware`);
+                        return next();
+                    }
+                    
                     console.log(`DEBUG: Calling next() to pass request to proxy middleware`);
                     return next(); // Valid cookie and active subscription found, proceed
                 } else {
@@ -273,6 +279,13 @@ const paywallMiddleware = async (req, res, next) => { // Made async to use await
             // If cookie is invalid, clear it to force re-authentication
             res.clearCookie(AUTH_COOKIE_NAME);
         }
+    }
+
+    // If we reach here, user is not authenticated
+    // For excluded paths, allow access without authentication (but no req.user)
+    if (isExcludedPath) {
+        console.log(`INFO: Skipping paywall for excluded path (unauthenticated): ${req.originalUrl}`);
+        return next();
     }
 
     // --- Check for API Key in Header or Query (if no valid cookie was found) ---
