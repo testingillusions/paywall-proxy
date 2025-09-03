@@ -727,8 +727,11 @@ app.use('/', (req, res, next) => {
 console.log('DEBUG: Registering proxy middleware...');
 app.use('/', (req, res, next) => {
     console.log(`DEBUG: Final middleware before proxy - calling apiProxy for ${req.originalUrl}`);
-    apiProxy(req, res, next);
+    next();
 });
+
+// Register the proxy middleware directly
+app.use('/', apiProxy);
 
 
 
