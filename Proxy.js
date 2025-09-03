@@ -661,53 +661,11 @@ app.post('/api/register', express.urlencoded({ extended: true }), adminAuthMiddl
 // =========================================
 // Configure the proxy middleware
 const apiProxy = createProxyMiddleware({
-    target: TARGET_URL, // The target URL for the proxy
-    changeOrigin: true,  // Changes the origin of the host header to the target URL
-    headers: {
-        // Static headers - these will be overridden by onProxyReq if user is authenticated
-        'VUE-AUTH': 'AE8A774F-1DE0-4F98-B037-659645706A66'
-        // TBA-PLAN-TIER and VUE-EMAIL will be set dynamically per request in onProxyReq
-    },
-    ws: true,            // Enables proxying of WebSockets
-    logLevel: 'debug',   // Set log level to 'debug' for detailed logging in the console
-    // Add filter to see if this is being called
-    filter: (pathname, req) => {
-        console.log(`DEBUG: Proxy filter called for pathname: ${pathname}, originalUrl: ${req.originalUrl}`);
-        return true; // Always proxy
-    },
-    // Custom pathRewrite function to add '?format=raw' for specific requests
-    pathRewrite: function (path, req) {
-        console.log(`DEBUG: pathRewrite received path: ${path}`); // Log the exact path received
-
-        // List of paths that should receive the '?format=raw' argument
-        const pathsToFormatRaw = [
-            '/assets/js/mootools-core-1.6.0.js',
-            '/assets/js/mootools-more-1.6.0-compressed.js',
-            'ajax.php'
-        ];
-
-        // Check if the path starts with any of the specific MooTools file paths
-        const shouldAddFormatRaw = pathsToFormatRaw.some(segment => path.startsWith(segment));
-
-        if (shouldAddFormatRaw) {
-                            let newPath = path;
-            // Check if there are existing query parameters
-            if (path.includes('?')) {
-                newPath += '&format=raw'; // Append with & if query params exist
-            } else {
-                newPath += '?format=raw'; // Append with ? if no query params
-            }
-            console.log(`DEBUG: Rewriting path for moo.tools file: ${newPath}`);
-            return newPath;
-        }
-        // For all other paths, return the path as is (with the leading '/')
-        // The target URL will handle the base path.
-        console.log(`DEBUG: Keeping general path as is: ${path}`);
-        return path;
-    },
+    target: TARGET_URL,
+    changeOrigin: true,
+    logLevel: 'debug',
     onProxyReq: (proxyReq, req, res) => {
-        // Log at the very start of onProxyReq
-        console.log(`DEBUG: onProxyReq function entered for URL: ${req.originalUrl}`);
+        console.log(`DEBUG: *** onProxyReq FINALLY CALLED *** for URL: ${req.originalUrl}`);
         console.log(`DEBUG: req.user object:`, JSON.stringify(req.user, null, 2));
 
         // Inject dynamic headers if user is authenticated
@@ -722,145 +680,12 @@ const apiProxy = createProxyMiddleware({
             proxyReq.setHeader('VUE-AUTH', 'AE8A774F-1DE0-4F98-B037-659645706A66');
             console.log('DEBUG: Set default headers for unauthenticated request - req.user is:', req.user);
         }
-
-        const urlPath = req.originalUrl; // Get the original requested URL path
-
-        // Log the Host header being sent to the target to verify changeOrigin
-        console.log(`DEBUG: Proxying request Host header: ${proxyReq.getHeader('Host')}`);
-
-        // Extract the file extension from the URL path
-        const extensionMatch = urlPath.match(/\.([0-9a-z]+)(?:[\?#]|$)/i);
-
-        // Log if a request is being checked for blocking
-        console.log(`DEBUG: Checking request for disallowed extensions: ${urlPath}`);
-
-        if (extensionMatch) {
-            const fileExtension = '.' + extensionMatch[1].toLowerCase(); // e.g., '.zip'
-
-            // Re-enabled blocking logic
-            if (DISALLOWED_EXTENSIONS.includes(fileExtension)) {
-                console.warn(`🚫 BLOCKING: Disallowed file type request for ${urlPath} (extension: ${fileExtension})`);
-                res.status(403).send(`Forbidden: Requests for "${fileExtension}" files are not allowed.`);
-                proxyReq.destroy(); // Crucially, destroy the proxy request to prevent it from going out
-                return; // Stop further processing for this request
-            }
-        }
-        console.log(`Proxying request: ${req.method} ${urlPath} -> ${TARGET_URL}${proxyReq.path}`);
-    },
-    onProxyRes: (proxyRes, req, res) => {
-        console.log(`Received response from target for: ${req.originalUrl} with status ${proxyRes.statusCode}`);
-
-        // --- Start: Logic for rewriting response body URLs ---
-        const originalHeaders = proxyRes.headers;
-        const contentType = originalHeaders['content-type'];
-        const contentEncoding = originalHeaders['content-encoding'];
-
-        // Only attempt to rewrite text-based content (HTML, JavaScript, CSS)
-        if (contentType && (contentType.includes('text/html') || contentType.includes('application/javascript') || contentType.includes('text/css'))) {
-            let body = Buffer.from('');
-            proxyRes.on('data', (chunk) => {
-                body = Buffer.concat([body, chunk]);
-            });
-
-            proxyRes.on('end', () => {
-                let decodedBody;
-
-                // Decompress if necessary
-                try {
-                    if (contentEncoding === 'gzip') {
-                        decodedBody = zlib.gunzipSync(body).toString('utf8');
-                    } else if (contentEncoding === 'deflate') {
-                        decodedBody = zlib.inflateSync(body).toString('utf8');
-                    } else {
-                        decodedBody = body.toString('utf8');
-                    }
-                } catch (e) {
-                    console.error('Error decompressing response body:', e);
-                    // Fallback to sending original body if decompression fails
-                    res.setHeader('Content-Length', body.length);
-                    if (contentType) res.setHeader('Content-Type', contentType);
-                    if (contentEncoding) res.setHeader('Content-Encoding', contentEncoding);
-                    res.end(body);
-                    return;
-                }
-
-                // Determine the public proxy host for URL rewriting based on request protocol and host
-                const requestProtocol = req.protocol || (req.socket.encrypted ? 'https' : 'http');
-                const requestHost = req.headers.host;
-                const publicProxyHostForRewrite = `${requestProtocol}://${requestHost}`;
-
-                // Perform the replacement for http://localhost/ or http://localhost:PORT/
-                const localhostRegex = /(https?:\/\/localhost(:\d+)?)(?=\/|$|['";\s])/g;
-                const rewrittenBody = decodedBody.replace(localhostRegex, publicProxyHostForRewrite);
-
-                let reencodedBody;
-                // Re-compress if original was compressed
-                try {
-                    if (contentEncoding === 'gzip') {
-                        reencodedBody = zlib.gzipSync(rewrittenBody);
-                    } else if (contentEncoding === 'deflate') {
-                        reencodedBody = zlib.deflateSync(rewrittenBody);
-                    } else {
-                        reencodedBody = Buffer.from(rewrittenBody, 'utf8');
-                    }
-                } catch (e) {
-                    console.error('Error re-compressing response body:', e);
-                    // Fallback to sending uncompressed modified body if re-compression fails
-                    reencodedBody = Buffer.from(rewrittenBody, 'utf8');
-                    // Remove content-encoding header if re-compression failed
-                    delete proxyRes.headers['content-encoding'];
-                }
-
-                // Update headers for the client response
-                res.setHeader('Content-Length', reencodedBody.length);
-                // Preserve original content-type and content-encoding (if re-compression succeeded)
-                if (contentType) res.setHeader('Content-Type', contentType);
-                if (contentEncoding && reencodedBody !== Buffer.from(rewrittenBody, 'utf8')) { // Only set if original was compressed and re-compression worked
-                    res.setHeader('Content-Encoding', contentEncoding);
-                } else {
-                    // If re-compression failed or wasn't needed, ensure content-encoding is removed
-                    delete proxyRes.headers['content-encoding'];
-                }
-
-
-                // Pipe other headers from the original response to the client response
-                Object.keys(originalHeaders).forEach(header => {
-                    // Avoid overwriting headers we explicitly handle (Content-Type, Content-Length, Content-Encoding)
-                    if (!['content-type', 'content-length', 'content-encoding'].includes(header.toLowerCase())) {
-                        res.setHeader(header, originalHeaders[header]);
-                    }
-                });
-
-                // Send the modified body
-                res.end(reencodedBody);
-            });
-        } else {
-            // For non-text content, or if no rewriting is needed, just pipe the original response
-            proxyRes.pipe(res);
-        }
-        // --- End: Logic for rewriting response body URLs ---
-
-        // Also handle Location header for redirects (from previous iteration)
-        if (proxyRes.statusCode >= 300 && proxyRes.statusCode < 400 && proxyRes.headers.location) {
-            let location = proxyRes.headers.location;
-            console.log(`DEBUG: Original redirect Location header: ${location}`);
-
-            // If the redirect location points to localhost, rewrite it to use the dynamically determined public proxy host
-            if (location.startsWith('http://localhost')) {
-                const requestProtocol = req.protocol || (req.socket.encrypted ? 'https' : 'http');
-                const requestHost = req.headers.host;
-                const publicProxyHostForRewrite = `${requestProtocol}://${requestHost}`;
-                location = location.replace(/^http:\/\/localhost(:\d+)?/, publicProxyHostForRewrite);
-                console.log(`DEBUG: Rewriting redirect Location header to: ${location}`);
-                proxyRes.headers.location = location;
-            }
-        }
     },
     onError: (err, req, res) => {
         console.error(`DEBUG: Proxy error occurred for ${req.originalUrl}:`, err.message);
         console.error(`DEBUG: Error details:`, err);
         res.status(500).send('Proxy Error: Could not reach the target server.');
-    },
+    }
 });
 
 
@@ -874,6 +699,8 @@ app.use(paywallMiddleware);
 app.use('/', (req, res, next) => {
     console.log(`DEBUG: About to call proxy for: ${req.originalUrl}`);
     console.log(`DEBUG: req.user available:`, !!req.user);
+    console.log(`DEBUG: Request method: ${req.method}`);
+    console.log(`DEBUG: Request headers: ${JSON.stringify(req.headers)}`);
     next();
 });
 
