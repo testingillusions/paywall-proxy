@@ -227,11 +227,16 @@ const paywallMiddleware = async (req, res, next) => { // Made async to use await
             const decoded = jwt.verify(authToken, JWT_SECRET);
             if (decoded.authenticated === true && decoded.api_key) {
                 // Verify the API key from the token against the database to ensure subscription is active
-                const [rows] = await pool.query('SELECT subscription_status FROM users WHERE api_key = ?', [decoded.api_key]);
+                const [rows] = await pool.query('SELECT user_identifier, subscription_status, email FROM users WHERE api_key = ?', [decoded.api_key]);
                 if (rows.length > 0 && rows[0].subscription_status === 'active') {
                     console.log(`INFO: Access granted via cookie for API Key: ${decoded.api_key}`);
                     // Attach user info to request for potential future use (e.g., rate limiting by user)
-                    req.user = { apiKey: decoded.api_key, userIdentifier: rows[0].user_identifier };
+                    req.user = { 
+                        apiKey: decoded.api_key, 
+                        userIdentifier: decoded.user,
+                        email: decoded.email || decoded.user,
+                        planTier: decoded.planTier || 'Tier1'
+                    };
                     return next(); // Valid cookie and active subscription found, proceed
                 } else {
                     console.warn(`WARNING: Cookie valid but subscription status is not active for API Key: ${decoded.api_key}`);
@@ -260,7 +265,7 @@ const paywallMiddleware = async (req, res, next) => { // Made async to use await
     if (providedApiKey) {
         try {
             // Query database to validate the provided API key
-            const [rows] = await pool.query('SELECT user_identifier, subscription_status FROM users WHERE api_key = ?', [providedApiKey]);
+            const [rows] = await pool.query('SELECT user_identifier, subscription_status, email FROM users WHERE api_key = ?', [providedApiKey]);
 
             if (rows.length > 0 && rows[0].subscription_status === 'active') {
                 console.log(`INFO: Access granted via API Key: ${providedApiKey} (User: ${rows[0].user_identifier})`);
@@ -274,7 +279,12 @@ const paywallMiddleware = async (req, res, next) => { // Made async to use await
                 });
                 console.log(`INFO: Authentication cookie set for ${req.originalUrl}`);
                 // Attach user info to request for potential future use (e.g., rate limiting by user)
-                req.user = { apiKey: providedApiKey, userIdentifier: rows[0].user_identifier };
+                req.user = { 
+                    apiKey: providedApiKey, 
+                    userIdentifier: rows[0].user_identifier,
+                    email: rows[0].email || rows[0].user_identifier,
+                    planTier: 'Tier1' // You can make this dynamic based on user data
+                };
 
                 next(); // API key is valid and active, proceed
             } else {
@@ -468,14 +478,20 @@ app.get('/auth-launch', async (req, res) => {
         console.log("WARNING: Using tempKey override from ", req.headers.referer);
     }
     try {
-        const [rows] = await pool.query('SELECT user_identifier FROM users WHERE api_key = ?', [apiKey]);
+        const [rows] = await pool.query('SELECT user_identifier, email FROM users WHERE api_key = ?', [apiKey]);
 
         if (rows.length === 0) {
             return res.status(403).send('User not found.');
         }
 
         const jwtToken = jwt.sign(
-            { authenticated: true, api_key: apiKey, user: rows[0].user_identifier },
+            { 
+                authenticated: true, 
+                api_key: apiKey, 
+                user: rows[0].user_identifier,
+                email: rows[0].email || rows[0].user_identifier,
+                planTier: 'Tier1' // You can make this dynamic based on user data
+            },
             JWT_SECRET,
             { expiresIn: '1h' }
         );
@@ -569,7 +585,13 @@ app.post('/login', express.urlencoded({ extended: true }), async (req, res) => {
         }
 
         const token = jwt.sign(
-            { authenticated: true, api_key: user.api_key, user: user.user_identifier },
+            { 
+                authenticated: true, 
+                api_key: user.api_key, 
+                user: user.user_identifier,
+                email: email,
+                planTier: 'Tier1' // You can make this dynamic based on user data
+            },
             JWT_SECRET,
             { expiresIn: '1h' }
         );
@@ -579,7 +601,8 @@ app.post('/login', express.urlencoded({ extended: true }), async (req, res) => {
             secure: true,
             sameSite: 'Lax'
         });
-
+        res.set('X-My-Header', 'value');
+        console.log('DEBUG: Setting X-My-Header before redirect');
         res.redirect('/'); // Redirect to root after successful login
     } catch (err) {
         console.error('Login error:', err);
@@ -632,9 +655,9 @@ const apiProxy = createProxyMiddleware({
     target: TARGET_URL, // The target URL for the proxy
     changeOrigin: true,  // Changes the origin of the host header to the target URL
     headers: {
-        'TBA-PLAN-TIER': 'Tier1',
+        // Static headers - these will be overridden by onProxyReq if user is authenticated
         'VUE-AUTH': 'AE8A774F-1DE0-4F98-B037-659645706A66'
-        // VUE-EMAIL will be set dynamically per request in onProxyReq
+        // TBA-PLAN-TIER and VUE-EMAIL will be set dynamically per request in onProxyReq
     },
     ws: true,            // Enables proxying of WebSockets
     logLevel: 'debug',   // Set log level to 'debug' for detailed logging in the console
@@ -672,10 +695,17 @@ const apiProxy = createProxyMiddleware({
         // Log at the very start of onProxyReq
         console.log(`DEBUG: onProxyReq function entered for URL: ${req.originalUrl}`);
 
-        // Inject dynamic VUE-EMAIL header if user is authenticated
+        // Inject dynamic headers if user is authenticated
         if (req.user && req.user.userIdentifier) {
-            proxyReq.setHeader('VUE-EMAIL', req.user.userIdentifier);
-            console.log(`DEBUG: Injected VUE-EMAIL header: ${req.user.userIdentifier}`);
+            proxyReq.setHeader('TBA-PLAN-TIER', req.user.planTier || 'Tier1');
+            proxyReq.setHeader('VUE-AUTH', 'AE8A774F-1DE0-4F98-B037-659645706A66');
+            proxyReq.setHeader('VUE-EMAIL', req.user.email);
+            console.log(`DEBUG: Injected headers - TBA-PLAN-TIER: ${req.user.planTier || 'Tier1'}, VUE-EMAIL: ${req.user.email}`);
+        } else {
+            // Set default headers for unauthenticated requests
+            proxyReq.setHeader('TBA-PLAN-TIER', 'Tier1');
+            proxyReq.setHeader('VUE-AUTH', 'AE8A774F-1DE0-4F98-B037-659645706A66');
+            console.log('DEBUG: Set default headers for unauthenticated request');
         }
 
         const urlPath = req.originalUrl; // Get the original requested URL path
