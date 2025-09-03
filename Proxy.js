@@ -121,6 +121,23 @@ const TARGET_URL = process.env.TARGET_URL || 'http://tba.uglyyellowbunny.com/';
 
 console.log(`INFO: Proxy target URL set to: ${TARGET_URL}`);
 
+// Test if target URL is reachable
+console.log('INFO: Testing target URL connectivity...');
+const testTarget = () => {
+    const targetProtocol = TARGET_URL.startsWith('https:') ? https : http;
+    const testReq = targetProtocol.get(TARGET_URL, (testRes) => {
+        console.log(`INFO: Target URL test - Status: ${testRes.statusCode}`);
+    });
+    testReq.on('error', (err) => {
+        console.error(`ERROR: Target URL test failed:`, err.message);
+    });
+    testReq.setTimeout(5000, () => {
+        console.log('INFO: Target URL test - Timeout after 5 seconds');
+        testReq.destroy();
+    });
+};
+testTarget();
+
 
 // =========================================
 // HTTPS Certificate Loading and Validation
@@ -705,7 +722,11 @@ app.use('/', (req, res, next) => {
 });
 
 // Use the proxy middleware for all requests starting with '/' (root path)
-app.use('/', apiProxy);
+console.log('DEBUG: Registering proxy middleware...');
+app.use('/', (req, res, next) => {
+    console.log(`DEBUG: Final middleware before proxy - calling apiProxy for ${req.originalUrl}`);
+    apiProxy(req, res, next);
+});
 
 
 
