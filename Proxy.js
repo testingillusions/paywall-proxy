@@ -632,8 +632,9 @@ const apiProxy = createProxyMiddleware({
     target: TARGET_URL, // The target URL for the proxy
     changeOrigin: true,  // Changes the origin of the host header to the target URL
     headers: {
-    'TBA-PLAN-TIER': 'Tier1',
-    'VUE-AUTH':'AE8A774F-1DE0-4F98-B037-659645706A66'
+        'TBA-PLAN-TIER': 'Tier1',
+        'VUE-AUTH': 'AE8A774F-1DE0-4F98-B037-659645706A66'
+        // VUE-EMAIL will be set dynamically per request in onProxyReq
     },
     ws: true,            // Enables proxying of WebSockets
     logLevel: 'debug',   // Set log level to 'debug' for detailed logging in the console
@@ -670,6 +671,12 @@ const apiProxy = createProxyMiddleware({
     onProxyReq: (proxyReq, req, res) => {
         // Log at the very start of onProxyReq
         console.log(`DEBUG: onProxyReq function entered for URL: ${req.originalUrl}`);
+
+        // Inject dynamic VUE-EMAIL header if user is authenticated
+        if (req.user && req.user.userIdentifier) {
+            proxyReq.setHeader('VUE-EMAIL', req.user.userIdentifier);
+            console.log(`DEBUG: Injected VUE-EMAIL header: ${req.user.userIdentifier}`);
+        }
 
         const urlPath = req.originalUrl; // Get the original requested URL path
 
