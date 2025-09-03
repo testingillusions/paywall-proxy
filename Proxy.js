@@ -41,45 +41,16 @@ const app = express();
 app.use(express.json()); // Enable parsing of JSON request bodies for API endpoints
 app.use('/images', express.static('public/images'));
 
-// --- Log all incoming Express requests ---
+// --- Log incoming requests (essential monitoring) ---
 app.use((req, res, next) => {
-    console.log(`DEBUG: Express received request for: ${req.originalUrl}`);
-    console.log(`DEBUG: Request method: ${req.method}`);
-    console.log(`DEBUG: Request path: ${req.path}`);
-    console.log('DEBUG: Incoming request headers:\n', JSON.stringify(req.headers, null, 2));
-      console.log('--- Incoming Request ---');
-  // Basic request line
-  console.log('Method:       ', req.method);
-  console.log('Original URL: ', req.originalUrl);
-  console.log('Base URL:     ', req.baseUrl);
-  console.log('Path:         ', req.path);
-  console.log('Query params: ', req.query);
-  console.log('Route params: ', req.params);
-
-  // Headers & protocol
-  console.log('Host:         ', req.get('host'));
-  console.log('Protocol:     ', req.protocol);
-  console.log('Secure?       ', req.secure);
-  console.log('Subdomains:   ', req.subdomains);
-
-  // Body and cookies (after body-parsers and cookieParser have run)
-  console.log('Body:         ', req.body);
-  console.log('Cookies:      ', req.cookies);
-  console.log('SignedCookies:', req.signedCookies);
-
-  // Client/network info
-  console.log('IP:           ', req.ip);
-  console.log('IPs (if behind proxy):', req.ips);
-  console.log('Socket addr:  ', req.socket.remoteAddress);
-
-  // Convenience methods
-  console.log('Accepts JSON? ', req.is('application/json'));
-  console.log('Accepts HTML? ', req.accepts('html'));
-  console.log('XHR request?  ', req.xhr);
-
-  // Raw headers array
-  console.log('Raw headers:  ', req.rawHeaders);
-    next(); // Pass the request to the next middleware (which is our proxy)
+    // Only log non-asset requests to reduce noise
+    if (!req.originalUrl.startsWith('/images/') && 
+        !req.originalUrl.startsWith('/css/') && 
+        !req.originalUrl.startsWith('/js/') &&
+        !req.originalUrl.endsWith('.ico')) {
+        console.log(`INFO: ${req.method} ${req.originalUrl} - ${req.ip}`);
+    }
+    next();
 });
 
 
@@ -96,6 +67,10 @@ app.use((req, res, next) => {
         res.header('Access-Control-Allow-Credentials', 'true');
     }
 
+    // Security headers
+    res.header('X-Content-Type-Options', 'nosniff');
+    res.header('X-Frame-Options', 'DENY');
+    
     if (req.method === 'OPTIONS') {
         return res.sendStatus(200);
     }
@@ -220,8 +195,6 @@ if (!JWT_SECRET || !ADMIN_SECRET_KEY) {
 
 // Paywall Middleware
 const paywallMiddleware = async (req, res, next) => { // Made async to use await for DB queries
-    console.log(`DEBUG: Paywall middleware called for: ${req.originalUrl}`);
-    
     // Define paths that should NOT require an API key (e.g., static assets that are publicly accessible)
     // Also exclude the new API management endpoints from the main paywall
     const EXCLUDED_PAYWALL_PATHS = [
@@ -249,7 +222,7 @@ const paywallMiddleware = async (req, res, next) => { // Made async to use await
                 // Verify the API key from the token against the database to ensure subscription is active
                 const [rows] = await pool.query('SELECT user_identifier, subscription_status, email FROM users WHERE api_key = ?', [decoded.api_key]);
                 if (rows.length > 0 && rows[0].subscription_status === 'active') {
-                    console.log(`INFO: Access granted via cookie for API Key: ${decoded.api_key}`);
+                    console.log(`INFO: Access granted via cookie for user: ${decoded.user}`);
                     // Attach user info to request for potential future use (e.g., rate limiting by user)
                     req.user = { 
                         apiKey: decoded.api_key, 
@@ -257,16 +230,12 @@ const paywallMiddleware = async (req, res, next) => { // Made async to use await
                         email: decoded.email || decoded.user,
                         planTier: decoded.planTier || 'Tier1'
                     };
-                    console.log(`DEBUG: Set req.user from cookie:`, JSON.stringify(req.user, null, 2));
                     
                     // For excluded paths, skip paywall but allow headers to be injected
                     if (isExcludedPath) {
-                        console.log(`INFO: User authenticated but skipping paywall for excluded path: ${req.originalUrl}`);
-                        console.log(`DEBUG: Calling next() to pass request to proxy middleware`);
                         return next();
                     }
                     
-                    console.log(`DEBUG: Calling next() to pass request to proxy middleware`);
                     return next(); // Valid cookie and active subscription found, proceed
                 } else {
                     console.warn(`WARNING: Cookie valid but subscription status is not active for API Key: ${decoded.api_key}`);
@@ -283,7 +252,6 @@ const paywallMiddleware = async (req, res, next) => { // Made async to use await
     // If we reach here, user is not authenticated
     // For excluded paths, allow access without authentication (but no req.user)
     if (isExcludedPath) {
-        console.log(`INFO: Skipping paywall for excluded path (unauthenticated): ${req.originalUrl}`);
         return next();
     }
 
@@ -322,7 +290,6 @@ const paywallMiddleware = async (req, res, next) => { // Made async to use await
                     email: rows[0].email || rows[0].user_identifier,
                     planTier: 'Tier1' // You can make this dynamic based on user data
                 };
-                console.log(`DEBUG: Set req.user from API key:`, JSON.stringify(req.user, null, 2));
 
                 next(); // API key is valid and active, proceed
             } else {
@@ -639,8 +606,6 @@ app.post('/login', express.urlencoded({ extended: true }), async (req, res) => {
             secure: true,
             sameSite: 'Lax'
         });
-        res.set('X-My-Header', 'value');
-        console.log('DEBUG: Setting X-My-Header before redirect');
         res.redirect('/'); // Redirect to root after successful login
     } catch (err) {
         console.error('Login error:', err);
@@ -692,37 +657,32 @@ app.post('/api/register', express.urlencoded({ extended: true }), adminAuthMiddl
 const apiProxy = createProxyMiddleware({
     target: TARGET_URL,
     changeOrigin: true,
-    logLevel: 'debug',
+    logLevel: 'warn', // Reduce proxy logging noise
     pathRewrite: {
         '^/': '/', // Ensure root paths are handled correctly
     },
     on: {
         proxyReq: (proxyReq, req, res) => {
-            console.log(`DEBUG: *** onProxyReq FINALLY CALLED *** for URL: ${req.originalUrl}`);
-            console.log(`DEBUG: Target URL: ${TARGET_URL}`);
-            console.log(`DEBUG: Proxy request path: ${proxyReq.path}`);
-            console.log(`DEBUG: req.user object:`, JSON.stringify(req.user, null, 2));
-
             // Inject dynamic headers if user is authenticated
             if (req.user && req.user.userIdentifier) {
                 proxyReq.setHeader('TBA-PLAN-TIER', req.user.planTier || 'Tier1');
                 proxyReq.setHeader('VUE-AUTH', 'AE8A774F-1DE0-4F98-B037-659645706A66');
                 proxyReq.setHeader('VUE-EMAIL', req.user.email);
-                console.log(`DEBUG: Injected headers - TBA-PLAN-TIER: ${req.user.planTier || 'Tier1'}, VUE-EMAIL: ${req.user.email}`);
+                console.log(`INFO: Injected user headers for ${req.user.email} (${req.user.planTier})`);
             } else {
                 // Set default headers for unauthenticated requests
                 proxyReq.setHeader('TBA-PLAN-TIER', 'Tier1');
                 proxyReq.setHeader('VUE-AUTH', 'AE8A774F-1DE0-4F98-B037-659645706A66');
-                console.log('DEBUG: Set default headers for unauthenticated request - req.user is:', req.user);
             }
         },
         proxyRes: (proxyRes, req, res) => {
-            console.log(`DEBUG: *** onProxyRes called *** for URL: ${req.originalUrl}`);
-            console.log(`DEBUG: Response status: ${proxyRes.statusCode}`);
+            // Only log errors or important status codes
+            if (proxyRes.statusCode >= 400) {
+                console.warn(`WARN: Proxy response ${proxyRes.statusCode} for ${req.originalUrl}`);
+            }
         },
         error: (err, req, res) => {
-            console.error(`DEBUG: Proxy error occurred for ${req.originalUrl}:`, err.message);
-            console.error(`DEBUG: Error details:`, err);
+            console.error(`ERROR: Proxy error for ${req.originalUrl}:`, err.message);
             res.status(500).send('Proxy Error: Could not reach the target server.');
         }
     }
@@ -735,15 +695,8 @@ const apiProxy = createProxyMiddleware({
 // --- APPLY PAYWALL MIDDLEWARE BEFORE THE PROXY ---
 app.use(paywallMiddleware);
 
-// Use the proxy middleware for all requests starting with '/' (root path)
-console.log('DEBUG: Registering proxy middleware...');
-
-// Add a wrapper to debug if the proxy middleware is even called
-app.use('/', (req, res, next) => {
-    console.log(`DEBUG: Proxy middleware wrapper called for: ${req.originalUrl}`);
-    console.log(`DEBUG: req.user in proxy wrapper:`, !!req.user);
-    apiProxy(req, res, next);
-});
+// Register the proxy middleware directly
+app.use('/', apiProxy);
 
 
 
