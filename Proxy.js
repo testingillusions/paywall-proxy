@@ -119,6 +119,8 @@ const PORT = process.env.PORT || 443;
 // Read from .env, fallback to default
 const TARGET_URL = process.env.TARGET_URL || 'http://tba.uglyyellowbunny.com/';
 
+console.log(`INFO: Proxy target URL set to: ${TARGET_URL}`);
+
 
 // =========================================
 // HTTPS Certificate Loading and Validation
@@ -668,6 +670,11 @@ const apiProxy = createProxyMiddleware({
     },
     ws: true,            // Enables proxying of WebSockets
     logLevel: 'debug',   // Set log level to 'debug' for detailed logging in the console
+    // Add filter to see if this is being called
+    filter: (pathname, req) => {
+        console.log(`DEBUG: Proxy filter called for pathname: ${pathname}, originalUrl: ${req.originalUrl}`);
+        return true; // Always proxy
+    },
     // Custom pathRewrite function to add '?format=raw' for specific requests
     pathRewrite: function (path, req) {
         console.log(`DEBUG: pathRewrite received path: ${path}`); // Log the exact path received
@@ -850,7 +857,8 @@ const apiProxy = createProxyMiddleware({
         }
     },
     onError: (err, req, res) => {
-        console.error(`Proxy error for ${req.originalUrl}:`, err);
+        console.error(`DEBUG: Proxy error occurred for ${req.originalUrl}:`, err.message);
+        console.error(`DEBUG: Error details:`, err);
         res.status(500).send('Proxy Error: Could not reach the target server.');
     },
 });
