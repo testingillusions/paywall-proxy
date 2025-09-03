@@ -684,33 +684,35 @@ const apiProxy = createProxyMiddleware({
     pathRewrite: {
         '^/': '/', // Ensure root paths are handled correctly
     },
-    onProxyReq: (proxyReq, req, res) => {
-        console.log(`DEBUG: *** onProxyReq FINALLY CALLED *** for URL: ${req.originalUrl}`);
-        console.log(`DEBUG: Target URL: ${TARGET_URL}`);
-        console.log(`DEBUG: Proxy request path: ${proxyReq.path}`);
-        console.log(`DEBUG: req.user object:`, JSON.stringify(req.user, null, 2));
+    on: {
+        proxyReq: (proxyReq, req, res) => {
+            console.log(`DEBUG: *** onProxyReq FINALLY CALLED *** for URL: ${req.originalUrl}`);
+            console.log(`DEBUG: Target URL: ${TARGET_URL}`);
+            console.log(`DEBUG: Proxy request path: ${proxyReq.path}`);
+            console.log(`DEBUG: req.user object:`, JSON.stringify(req.user, null, 2));
 
-        // Inject dynamic headers if user is authenticated
-        if (req.user && req.user.userIdentifier) {
-            proxyReq.setHeader('TBA-PLAN-TIER', req.user.planTier || 'Tier1');
-            proxyReq.setHeader('VUE-AUTH', 'AE8A774F-1DE0-4F98-B037-659645706A66');
-            proxyReq.setHeader('VUE-EMAIL', req.user.email);
-            console.log(`DEBUG: Injected headers - TBA-PLAN-TIER: ${req.user.planTier || 'Tier1'}, VUE-EMAIL: ${req.user.email}`);
-        } else {
-            // Set default headers for unauthenticated requests
-            proxyReq.setHeader('TBA-PLAN-TIER', 'Tier1');
-            proxyReq.setHeader('VUE-AUTH', 'AE8A774F-1DE0-4F98-B037-659645706A66');
-            console.log('DEBUG: Set default headers for unauthenticated request - req.user is:', req.user);
+            // Inject dynamic headers if user is authenticated
+            if (req.user && req.user.userIdentifier) {
+                proxyReq.setHeader('TBA-PLAN-TIER', req.user.planTier || 'Tier1');
+                proxyReq.setHeader('VUE-AUTH', 'AE8A774F-1DE0-4F98-B037-659645706A66');
+                proxyReq.setHeader('VUE-EMAIL', req.user.email);
+                console.log(`DEBUG: Injected headers - TBA-PLAN-TIER: ${req.user.planTier || 'Tier1'}, VUE-EMAIL: ${req.user.email}`);
+            } else {
+                // Set default headers for unauthenticated requests
+                proxyReq.setHeader('TBA-PLAN-TIER', 'Tier1');
+                proxyReq.setHeader('VUE-AUTH', 'AE8A774F-1DE0-4F98-B037-659645706A66');
+                console.log('DEBUG: Set default headers for unauthenticated request - req.user is:', req.user);
+            }
+        },
+        proxyRes: (proxyRes, req, res) => {
+            console.log(`DEBUG: *** onProxyRes called *** for URL: ${req.originalUrl}`);
+            console.log(`DEBUG: Response status: ${proxyRes.statusCode}`);
+        },
+        error: (err, req, res) => {
+            console.error(`DEBUG: Proxy error occurred for ${req.originalUrl}:`, err.message);
+            console.error(`DEBUG: Error details:`, err);
+            res.status(500).send('Proxy Error: Could not reach the target server.');
         }
-    },
-    onProxyRes: (proxyRes, req, res) => {
-        console.log(`DEBUG: *** onProxyRes called *** for URL: ${req.originalUrl}`);
-        console.log(`DEBUG: Response status: ${proxyRes.statusCode}`);
-    },
-    onError: (err, req, res) => {
-        console.error(`DEBUG: Proxy error occurred for ${req.originalUrl}:`, err.message);
-        console.error(`DEBUG: Error details:`, err);
-        res.status(500).send('Proxy Error: Could not reach the target server.');
     }
 });
 
@@ -724,8 +726,12 @@ app.use(paywallMiddleware);
 // Use the proxy middleware for all requests starting with '/' (root path)
 console.log('DEBUG: Registering proxy middleware...');
 
-// Register the proxy middleware directly
-app.use('/', apiProxy);
+// Add a wrapper to debug if the proxy middleware is even called
+app.use('/', (req, res, next) => {
+    console.log(`DEBUG: Proxy middleware wrapper called for: ${req.originalUrl}`);
+    console.log(`DEBUG: req.user in proxy wrapper:`, !!req.user);
+    apiProxy(req, res, next);
+});
 
 
 
