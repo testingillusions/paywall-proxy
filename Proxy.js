@@ -44,6 +44,8 @@ app.use('/images', express.static('public/images'));
 // --- Log all incoming Express requests ---
 app.use((req, res, next) => {
     console.log(`DEBUG: Express received request for: ${req.originalUrl}`);
+    console.log(`DEBUG: Request method: ${req.method}`);
+    console.log(`DEBUG: Request path: ${req.path}`);
     console.log('DEBUG: Incoming request headers:\n', JSON.stringify(req.headers, null, 2));
       console.log('--- Incoming Request ---');
   // Basic request line
@@ -199,6 +201,8 @@ if (!JWT_SECRET || !ADMIN_SECRET_KEY) {
 
 // Paywall Middleware
 const paywallMiddleware = async (req, res, next) => { // Made async to use await for DB queries
+    console.log(`DEBUG: Paywall middleware called for: ${req.originalUrl}`);
+    
     // Define paths that should NOT require an API key (e.g., static assets that are publicly accessible)
     // Also exclude the new API management endpoints from the main paywall
     const EXCLUDED_PAYWALL_PATHS = [
@@ -238,6 +242,7 @@ const paywallMiddleware = async (req, res, next) => { // Made async to use await
                         planTier: decoded.planTier || 'Tier1'
                     };
                     console.log(`DEBUG: Set req.user from cookie:`, JSON.stringify(req.user, null, 2));
+                    console.log(`DEBUG: Calling next() to pass request to proxy middleware`);
                     return next(); // Valid cookie and active subscription found, proceed
                 } else {
                     console.warn(`WARNING: Cookie valid but subscription status is not active for API Key: ${decoded.api_key}`);
@@ -856,6 +861,13 @@ const apiProxy = createProxyMiddleware({
 // =========================================
 // --- APPLY PAYWALL MIDDLEWARE BEFORE THE PROXY ---
 app.use(paywallMiddleware);
+
+// Debug middleware to see if we reach the proxy
+app.use('/', (req, res, next) => {
+    console.log(`DEBUG: About to call proxy for: ${req.originalUrl}`);
+    console.log(`DEBUG: req.user available:`, !!req.user);
+    next();
+});
 
 // Use the proxy middleware for all requests starting with '/' (root path)
 app.use('/', apiProxy);
