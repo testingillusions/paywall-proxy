@@ -463,6 +463,7 @@ const tempKeyAPI= "3603b3d381d05fc28ef60adfc11c17769c9ab6945e6798a8cf87f3db0b2b4
 
 app.get('/auth-launch', async (req, res) => {
     const token = req.query.token;
+    let apiKey; // Declare apiKey variable
     // NOTE: This will need to be changed if scaling is required. 
     
     if (token!=tempKey) //If not the override key
@@ -472,7 +473,9 @@ app.get('/auth-launch', async (req, res) => {
         return res.status(403).send('Invalid or missing launch token.');
         }
         
-        const { apiKey, expires } = launchTokens[token];
+        const tokenData = launchTokens[token];
+        apiKey = tokenData.apiKey;
+        const expires = tokenData.expires;
 
         if (Date.now() > expires) {
             delete launchTokens[token];
