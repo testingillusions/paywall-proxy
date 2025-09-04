@@ -58,7 +58,7 @@ app.use((req, res, next) => {
     const origin = req.headers.origin;
 
     // Update this if supporting multiple origins
-    const allowedOrigin = 'https://testingillusions.com';
+    const allowedOrigin = 'http://localhost.com';
 
     if (origin === allowedOrigin) {
         res.header('Access-Control-Allow-Origin', allowedOrigin);
@@ -80,6 +80,11 @@ app.use((req, res, next) => {
 
 // --- Use cookie-parser middleware ---
 app.use(cookieParser());
+
+// Add healthcheck endpoint to main app (in addition to the separate appHealth instance)
+app.get('/healthcheck', (req, res) => {
+    res.status(200).send('OK');
+});
 
 
 
@@ -202,6 +207,7 @@ const paywallMiddleware = async (req, res, next) => { // Made async to use await
         '/js/',
         '/images/',
         '/favicon.ico',
+        '/healthcheck',
         '/api/generate-token', // Exclude API management endpoints
         '/api/update-subscription-status',    // Exclude API management endpoints
         '/app/modules/tba/'
