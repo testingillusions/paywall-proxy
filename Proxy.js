@@ -58,7 +58,7 @@ app.use((req, res, next) => {
     const origin = req.headers.origin;
 
     // Update this if supporting multiple origins
-    const allowedOrigin = 'http://localhost.com';
+    const allowedOrigin = 'http://localhost:8080';
 
     if (origin === allowedOrigin) {
         res.header('Access-Control-Allow-Origin', allowedOrigin);
