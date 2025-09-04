@@ -206,6 +206,7 @@ const paywallMiddleware = async (req, res, next) => { // Made async to use await
         '/css/',
         '/js/',
         '/images/',
+        '/assets/',
         '/favicon.ico',
         '/healthcheck',
         '/api/generate-token', // Exclude API management endpoints
@@ -665,6 +666,7 @@ const apiProxy = createProxyMiddleware({
     changeOrigin: true,
     logLevel: 'warn', // Reduce proxy logging noise
     pathRewrite: {
+        '^/secure-proxy/': '/', // Remove /secure-proxy/ prefix if present
         '^/': '/', // Ensure root paths are handled correctly
     },
     on: {
@@ -689,7 +691,15 @@ const apiProxy = createProxyMiddleware({
         },
         error: (err, req, res) => {
             console.error(`ERROR: Proxy error for ${req.originalUrl}:`, err.message);
-            res.status(500).send('Proxy Error: Could not reach the target server.');
+            console.error(`ERROR: Target server may be unreachable: ${TARGET_URL}`);
+            
+            // Check if it's a connection refused error
+            if (err.code === 'ECONNREFUSED') {
+                console.error(`ERROR: Connection refused to target server ${TARGET_URL} - server may be down`);
+                res.status(502).send(`Bad Gateway: Target server ${TARGET_URL} is not responding`);
+            } else {
+                res.status(500).send('Proxy Error: Could not reach the target server.');
+            }
         }
     }
 });
