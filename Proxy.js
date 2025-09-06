@@ -17,7 +17,7 @@ const jwt = require('jsonwebtoken'); // Import jsonwebtoken
 const mysql = require('mysql2/promise'); // Import mysql2 for database connection
 const crypto = require('crypto'); // For generating random API keys
 const rateLimit = require('express-rate-limit'); // Import express-rate-limit
-
+const bcrypt = require('bcrypt'); //Import bcrypt for login screen 
 
 // In memory implementation for storing launch keys. 
 // NOTE: This will need to be updated if scaling the proxy is necessary. 
@@ -39,13 +39,26 @@ appHealth.listen(port, () => console.log(`Example app listening on port ${port}!
 // Initialize the Express application
 const app = express();
 app.use(express.json()); // Enable parsing of JSON request bodies for API endpoints
+app.use('/images', express.static('public/images'));
+
+// --- Log incoming requests (essential monitoring) ---
+app.use((req, res, next) => {
+    // Only log non-asset requests to reduce noise
+    if (!req.originalUrl.startsWith('/images/') && 
+        !req.originalUrl.startsWith('/css/') && 
+        !req.originalUrl.startsWith('/js/') &&
+        !req.originalUrl.endsWith('.ico')) {
+        console.log(`INFO: ${req.method} ${req.originalUrl} - ${req.ip}`);
+    }
+    next();
+});
 
 
 app.use((req, res, next) => {
     const origin = req.headers.origin;
 
     // Update this if supporting multiple origins
-    const allowedOrigin = 'https://testingillusions.com';
+    const allowedOrigin = 'https://benefitsacademytoolbox.com/';
 
     if (origin === allowedOrigin) {
         res.header('Access-Control-Allow-Origin', allowedOrigin);
@@ -54,6 +67,10 @@ app.use((req, res, next) => {
         res.header('Access-Control-Allow-Credentials', 'true');
     }
 
+    // Security headers
+    res.header('X-Content-Type-Options', 'nosniff');
+    res.header('X-Frame-Options', 'DENY');
+    
     if (req.method === 'OPTIONS') {
         return res.sendStatus(200);
     }
@@ -64,11 +81,11 @@ app.use((req, res, next) => {
 // --- Use cookie-parser middleware ---
 app.use(cookieParser());
 
-// --- Log all incoming Express requests ---
-app.use((req, res, next) => {
-    console.log(`DEBUG: Express received request for: ${req.originalUrl}`);
-    next(); // Pass the request to the next middleware (which is our proxy)
+// Add healthcheck endpoint to main app (in addition to the separate appHealth instance)
+app.get('/healthcheck', (req, res) => {
+    res.status(200).send('OK');
 });
+
 
 
 // =========================================
@@ -81,6 +98,25 @@ const PORT = process.env.PORT || 443;
 // Define the target URL to which requests will be proxied.
 // Read from .env, fallback to default
 const TARGET_URL = process.env.TARGET_URL || 'http://tba.uglyyellowbunny.com/';
+
+console.log(`INFO: Proxy target URL set to: ${TARGET_URL}`);
+
+// Test if target URL is reachable
+console.log('INFO: Testing target URL connectivity...');
+const testTarget = () => {
+    const targetProtocol = TARGET_URL.startsWith('https:') ? https : http;
+    const testReq = targetProtocol.get(TARGET_URL, (testRes) => {
+        console.log(`INFO: Target URL test - Status: ${testRes.statusCode}`);
+    });
+    testReq.on('error', (err) => {
+        console.error(`ERROR: Target URL test failed:`, err.message);
+    });
+    testReq.setTimeout(5000, () => {
+        console.log('INFO: Target URL test - Timeout after 5 seconds');
+        testReq.destroy();
+    });
+};
+testTarget();
 
 
 // =========================================
@@ -167,35 +203,46 @@ const paywallMiddleware = async (req, res, next) => { // Made async to use await
     // Define paths that should NOT require an API key (e.g., static assets that are publicly accessible)
     // Also exclude the new API management endpoints from the main paywall
     const EXCLUDED_PAYWALL_PATHS = [
-        '/assets/',
         '/css/',
         '/js/',
         '/images/',
+        '/assets/',
         '/favicon.ico',
+        '/healthcheck',
         '/api/generate-token', // Exclude API management endpoints
-        '/api/update-subscription-status'    // Exclude API management endpoints
+        '/api/update-subscription-status',    // Exclude API management endpoints
+        '/app/modules/tba/'
     ];
 
     // Check if the current request path starts with any of the excluded paths
     const isExcludedPath = EXCLUDED_PAYWALL_PATHS.some(prefix => req.originalUrl.startsWith(prefix));
 
-    if (isExcludedPath) {
-        console.log(`INFO: Skipping main paywall for excluded path: ${req.originalUrl}`);
-        return next(); // Skip paywall check for static assets and API management endpoints
-    }
-
-    // --- Check for existing authentication cookie first ---
+    // --- ALWAYS try to authenticate the user first (even for excluded paths) ---
+    // This ensures req.user is available for header injection
+    
+    // Check for existing authentication cookie first
     const authToken = req.cookies[AUTH_COOKIE_NAME];
     if (authToken) {
         try {
             const decoded = jwt.verify(authToken, JWT_SECRET);
             if (decoded.authenticated === true && decoded.api_key) {
                 // Verify the API key from the token against the database to ensure subscription is active
-                const [rows] = await pool.query('SELECT subscription_status FROM users WHERE api_key = ?', [decoded.api_key]);
+                const [rows] = await pool.query('SELECT user_identifier, subscription_status, email FROM users WHERE api_key = ?', [decoded.api_key]);
                 if (rows.length > 0 && rows[0].subscription_status === 'active') {
-                    console.log(`INFO: Access granted via cookie for API Key: ${decoded.api_key}`);
+                    console.log(`INFO: Access granted via cookie for user: ${decoded.user}`);
                     // Attach user info to request for potential future use (e.g., rate limiting by user)
-                    req.user = { apiKey: decoded.api_key, userIdentifier: rows[0].user_identifier };
+                    req.user = { 
+                        apiKey: decoded.api_key, 
+                        userIdentifier: decoded.user,
+                        email: decoded.email || decoded.user,
+                        planTier: decoded.planTier || 'Tier1'
+                    };
+                    
+                    // For excluded paths, skip paywall but allow headers to be injected
+                    if (isExcludedPath) {
+                        return next();
+                    }
+                    
                     return next(); // Valid cookie and active subscription found, proceed
                 } else {
                     console.warn(`WARNING: Cookie valid but subscription status is not active for API Key: ${decoded.api_key}`);
@@ -207,6 +254,12 @@ const paywallMiddleware = async (req, res, next) => { // Made async to use await
             // If cookie is invalid, clear it to force re-authentication
             res.clearCookie(AUTH_COOKIE_NAME);
         }
+    }
+
+    // If we reach here, user is not authenticated
+    // For excluded paths, allow access without authentication (but no req.user)
+    if (isExcludedPath) {
+        return next();
     }
 
     // --- Check for API Key in Header or Query (if no valid cookie was found) ---
@@ -224,7 +277,7 @@ const paywallMiddleware = async (req, res, next) => { // Made async to use await
     if (providedApiKey) {
         try {
             // Query database to validate the provided API key
-            const [rows] = await pool.query('SELECT user_identifier, subscription_status FROM users WHERE api_key = ?', [providedApiKey]);
+            const [rows] = await pool.query('SELECT user_identifier, subscription_status, email FROM users WHERE api_key = ?', [providedApiKey]);
 
             if (rows.length > 0 && rows[0].subscription_status === 'active') {
                 console.log(`INFO: Access granted via API Key: ${providedApiKey} (User: ${rows[0].user_identifier})`);
@@ -238,7 +291,12 @@ const paywallMiddleware = async (req, res, next) => { // Made async to use await
                 });
                 console.log(`INFO: Authentication cookie set for ${req.originalUrl}`);
                 // Attach user info to request for potential future use (e.g., rate limiting by user)
-                req.user = { apiKey: providedApiKey, userIdentifier: rows[0].user_identifier };
+                req.user = { 
+                    apiKey: providedApiKey, 
+                    userIdentifier: rows[0].user_identifier,
+                    email: rows[0].email || rows[0].user_identifier,
+                    planTier: 'Tier1' // You can make this dynamic based on user data
+                };
 
                 next(); // API key is valid and active, proceed
             } else {
@@ -251,7 +309,7 @@ const paywallMiddleware = async (req, res, next) => { // Made async to use await
         }
     } else {
         console.warn(`WARNING: Access denied: No API Key or valid cookie provided.`);
-        res.status(401).send('Unauthorized: Valid API Key or authentication cookie required.');
+        res.redirect('/login');
     }
 };
 // --- END PAYWALL CONFIGURATION ---
@@ -278,7 +336,6 @@ const apiLimiter = rateLimit({
     }
 });
 // --- END Rate Limiting Configuration ---
-
 
 
 // =========================================
@@ -399,33 +456,56 @@ app.get('/api/create-launch-token', async (req, res) => {
 // Step 2: Browser is launched, calling this app with the temporary token. This will validate the token, create the cookie, then 
 // redirect to the root to server up the proxy content. 
 
+//TODO: ADDED LOGIC FOR WORKAROUND WITH VUE, THIS NEEDS TO BE REMOVED AFTER MIGRATION!!!
+const tempKey = "eIAtCjEocfNqAlFZBveO6vBwL2Ra2bkO9bRPVQVAMzbOcbX6Q1Je75gu4nmAodTd"
+const tempKeyAPI= "3603b3d381d05fc28ef60adfc11c17769c9ab6945e6798a8cf87f3db0b2b4422"
+
 app.get('/auth-launch', async (req, res) => {
     const token = req.query.token;
-
-    if (!token || !launchTokens[token]) {
-        return res.status(403).send('Invalid or missing launch token.');
-    }
-
+    let apiKey; // Declare apiKey variable
     // NOTE: This will need to be changed if scaling is required. 
-    const { apiKey, expires } = launchTokens[token];
+    
+    if (token!=tempKey) //If not the override key
+    {
 
-    if (Date.now() > expires) {
+        if( !token || !launchTokens[token] ) {
+        return res.status(403).send('Invalid or missing launch token.');
+        }
+        
+        const tokenData = launchTokens[token];
+        apiKey = tokenData.apiKey;
+        const expires = tokenData.expires;
+
+        if (Date.now() > expires) {
+            delete launchTokens[token];
+            return res.status(403).send('Launch token expired.');
+        }
+
+        // Token is valid
         delete launchTokens[token];
-        return res.status(403).send('Launch token expired.');
     }
-
-    // Token is valid
-    delete launchTokens[token];
-
+    else {
+        if(!req.headers.referer || !req.headers.referer=="https://tba.vueocity.com/"){
+            return res.status(403).send('Invalid or missing launch token.');
+        }
+        apiKey = tempKeyAPI;
+        console.log("WARNING: Using tempKey override from ", req.headers.referer);
+    }
     try {
-        const [rows] = await pool.query('SELECT user_identifier FROM users WHERE api_key = ?', [apiKey]);
+        const [rows] = await pool.query('SELECT user_identifier, email FROM users WHERE api_key = ?', [apiKey]);
 
         if (rows.length === 0) {
             return res.status(403).send('User not found.');
         }
 
         const jwtToken = jwt.sign(
-            { authenticated: true, api_key: apiKey, user: rows[0].user_identifier },
+            { 
+                authenticated: true, 
+                api_key: apiKey, 
+                user: rows[0].user_identifier,
+                email: rows[0].email || rows[0].user_identifier,
+                planTier: 'Tier1' // You can make this dynamic based on user data
+            },
             JWT_SECRET,
             { expiresIn: '1h' }
         );
@@ -443,186 +523,187 @@ app.get('/auth-launch', async (req, res) => {
     }
 });
 
+// Used to prompt user for a username and password.
+app.get('/login', (req, res) => {
+    res.send(`
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Login</title>
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+      rel="stylesheet"
+    >
+    <style>
+        body {
+            background-color: #f8f9fa;
+        }
+        .login-container {
+            max-width: 400px;
+            margin: 80px auto;
+            padding: 30px;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="login-container">
+            <img src="/images/tba_logo.png" alt="The Benefits Academy" class="logo">
+            <h2 class="text-center mb-4">Login</h2>
+            <form method="POST" action="/login">
+                <div class="mb-3">
+                    <label for="email" class="form-label">Email address</label>
+                    <input type="email" class="form-control" name="email" id="email" required>
+                </div>
+                <div class="mb-3">
+                    <label for="password" class="form-label">Password</label>
+                    <input type="password" class="form-control" name="password" id="password" required>
+                </div>
+                <div class="d-grid">
+                    <button type="submit" class="btn btn-primary">Sign In</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</body>
+</html>
+    `);
+});
+
+app.post('/login', express.urlencoded({ extended: true }), async (req, res) => {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+        return res.status(400).send('Missing email or password.');
+    }
+
+    try {
+        const [rows] = await pool.query('SELECT api_key, user_identifier, subscription_status, password_hash FROM users WHERE email = ?', [email]);
+
+        if (rows.length === 0) {
+            return res.status(401).send('Invalid email or password.');
+        }
+
+        const user = rows[0];
+        const passwordMatch = await bcrypt.compare(password, user.password_hash);
+        if (!passwordMatch) {
+            return res.status(401).send('Invalid email or password.');
+        }
+
+        if (user.subscription_status !== 'active') {
+            return res.status(403).send('Your subscription is not active.');
+        }
+
+        const token = jwt.sign(
+            { 
+                authenticated: true, 
+                api_key: user.api_key, 
+                user: user.user_identifier,
+                email: email,
+                planTier: 'Tier1' // You can make this dynamic based on user data
+            },
+            JWT_SECRET,
+            { expiresIn: '1h' }
+        );
+
+        res.cookie(AUTH_COOKIE_NAME, token, {
+            httpOnly: true,
+            secure: true,
+            sameSite: 'Lax'
+        });
+        res.redirect('/'); // Redirect to root after successful login
+    } catch (err) {
+        console.error('Login error:', err);
+        res.status(500).send('Internal server error during login.');
+    }
+});
+
+// used to register an email/password in the database
+// Requires Admin Secret
+
+app.post('/api/register', express.urlencoded({ extended: true }), adminAuthMiddleware, async (req, res) => {
+     const { email, password } = req.body;
+
+    if (!email || !password) {
+        return res.status(400).json({ error: 'Email and password are required.' });
+    }
+
+    try {
+        const passwordHash = await bcrypt.hash(password, 10);
+        const newApiKey = crypto.randomBytes(32).toString('hex');
+
+        // Use email as the user_identifier for legacy compatibility
+        await pool.query(
+            'INSERT INTO users (email, password_hash, user_identifier, api_key, subscription_status) VALUES (?, ?, ?, ?, ?)',
+            [email, passwordHash, email, newApiKey, 'active']
+        );
+
+        res.status(201).json({
+            message: 'User registered successfully.',
+            email,
+            apiKey: newApiKey,
+            subscriptionStatus: 'active'
+        });
+    } catch (err) {
+        console.error('Registration error:', err);
+        if (err.code === 'ER_DUP_ENTRY') {
+            res.status(409).json({ error: 'Email already registered.' });
+        } else {
+            res.status(500).json({ error: 'Server error during registration.' });
+        }
+    }
+});
+
 
 // =========================================
 // Proxy Middleware Configuration and Handlers
 // =========================================
 // Configure the proxy middleware
 const apiProxy = createProxyMiddleware({
-    target: TARGET_URL, // The target URL for the proxy
-    changeOrigin: true,  // Changes the origin of the host header to the target URL
-    ws: true,            // Enables proxying of WebSockets
-    logLevel: 'debug',   // Set log level to 'debug' for detailed logging in the console
-    // Custom pathRewrite function to add '?format=raw' for specific requests
-    pathRewrite: function (path, req) {
-        console.log(`DEBUG: pathRewrite received path: ${path}`); // Log the exact path received
-
-        // List of paths that should receive the '?format=raw' argument
-        const pathsToFormatRaw = [
-            '/assets/js/mootools-core-1.6.0.js',
-            '/assets/js/mootools-more-1.6.0-compressed.js'
-        ];
-
-        // Check if the path starts with any of the specific MooTools file paths
-        const shouldAddFormatRaw = pathsToFormatRaw.some(segment => path.startsWith(segment));
-
-        if (shouldAddFormatRaw) {
-                            let newPath = path;
-            // Check if there are existing query parameters
-            if (path.includes('?')) {
-                newPath += '&format=raw'; // Append with & if query params exist
+    target: TARGET_URL,
+    changeOrigin: true,
+    logLevel: 'warn', // Reduce proxy logging noise
+    pathRewrite: {
+        '^/secure-proxy/': '/', // Remove /secure-proxy/ prefix if present
+        '^/': '/', // Ensure root paths are handled correctly
+    },
+    on: {
+        proxyReq: (proxyReq, req, res) => {
+            // Inject dynamic headers if user is authenticated
+            if (req.user && req.user.userIdentifier) {
+                proxyReq.setHeader('TBA-PLAN-TIER', req.user.planTier || 'Tier1');
+                proxyReq.setHeader('VUE-AUTH', 'AE8A774F-1DE0-4F98-B037-659645706A66');
+                proxyReq.setHeader('VUE-EMAIL', req.user.email);
+                console.log(`INFO: Injected user headers for ${req.user.email} (${req.user.planTier})`);
             } else {
-                newPath += '?format=raw'; // Append with ? if no query params
+                // Set default headers for unauthenticated requests
+                proxyReq.setHeader('TBA-PLAN-TIER', 'Tier1');
+                proxyReq.setHeader('VUE-AUTH', 'AE8A774F-1DE0-4F98-B037-659645706A66');
             }
-            console.log(`DEBUG: Rewriting path for moo.tools file: ${newPath}`);
-            return newPath;
-        }
-        // For all other paths, return the path as is (with the leading '/')
-        // The target URL will handle the base path.
-        console.log(`DEBUG: Keeping general path as is: ${path}`);
-        return path;
-    },
-    onProxyReq: (proxyReq, req, res) => {
-        // Log at the very start of onProxyReq
-        console.log(`DEBUG: onProxyReq function entered for URL: ${req.originalUrl}`);
-
-        const urlPath = req.originalUrl; // Get the original requested URL path
-
-        // Log the Host header being sent to the target to verify changeOrigin
-        console.log(`DEBUG: Proxying request Host header: ${proxyReq.getHeader('Host')}`);
-
-        // Extract the file extension from the URL path
-        const extensionMatch = urlPath.match(/\.([0-9a-z]+)(?:[\?#]|$)/i);
-
-        // Log if a request is being checked for blocking
-        console.log(`DEBUG: Checking request for disallowed extensions: ${urlPath}`);
-
-        if (extensionMatch) {
-            const fileExtension = '.' + extensionMatch[1].toLowerCase(); // e.g., '.zip'
-
-            // Re-enabled blocking logic
-            if (DISALLOWED_EXTENSIONS.includes(fileExtension)) {
-                console.warn(`🚫 BLOCKING: Disallowed file type request for ${urlPath} (extension: ${fileExtension})`);
-                res.status(403).send(`Forbidden: Requests for "${fileExtension}" files are not allowed.`);
-                proxyReq.destroy(); // Crucially, destroy the proxy request to prevent it from going out
-                return; // Stop further processing for this request
+        },
+        proxyRes: (proxyRes, req, res) => {
+            // Only log errors or important status codes
+            if (proxyRes.statusCode >= 400) {
+                console.warn(`WARN: Proxy response ${proxyRes.statusCode} for ${req.originalUrl}`);
+            }
+        },
+        error: (err, req, res) => {
+            console.error(`ERROR: Proxy error for ${req.originalUrl}:`, err.message);
+            console.error(`ERROR: Target server may be unreachable: ${TARGET_URL}`);
+            
+            // Check if it's a connection refused error
+            if (err.code === 'ECONNREFUSED') {
+                console.error(`ERROR: Connection refused to target server ${TARGET_URL} - server may be down`);
+                res.status(502).send(`Bad Gateway: Target server ${TARGET_URL} is not responding`);
+            } else {
+                res.status(500).send('Proxy Error: Could not reach the target server.');
             }
         }
-        console.log(`Proxying request: ${req.method} ${urlPath} -> ${TARGET_URL}${proxyReq.path}`);
-    },
-    onProxyRes: (proxyRes, req, res) => {
-        console.log(`Received response from target for: ${req.originalUrl} with status ${proxyRes.statusCode}`);
-
-        // --- Start: Logic for rewriting response body URLs ---
-        const originalHeaders = proxyRes.headers;
-        const contentType = originalHeaders['content-type'];
-        const contentEncoding = originalHeaders['content-encoding'];
-
-        // Only attempt to rewrite text-based content (HTML, JavaScript, CSS)
-        if (contentType && (contentType.includes('text/html') || contentType.includes('application/javascript') || contentType.includes('text/css'))) {
-            let body = Buffer.from('');
-            proxyRes.on('data', (chunk) => {
-                body = Buffer.concat([body, chunk]);
-            });
-
-            proxyRes.on('end', () => {
-                let decodedBody;
-
-                // Decompress if necessary
-                try {
-                    if (contentEncoding === 'gzip') {
-                        decodedBody = zlib.gunzipSync(body).toString('utf8');
-                    } else if (contentEncoding === 'deflate') {
-                        decodedBody = zlib.inflateSync(body).toString('utf8');
-                    } else {
-                        decodedBody = body.toString('utf8');
-                    }
-                } catch (e) {
-                    console.error('Error decompressing response body:', e);
-                    // Fallback to sending original body if decompression fails
-                    res.setHeader('Content-Length', body.length);
-                    if (contentType) res.setHeader('Content-Type', contentType);
-                    if (contentEncoding) res.setHeader('Content-Encoding', contentEncoding);
-                    res.end(body);
-                    return;
-                }
-
-                // Determine the public proxy host for URL rewriting based on request protocol and host
-                const requestProtocol = req.protocol || (req.socket.encrypted ? 'https' : 'http');
-                const requestHost = req.headers.host;
-                const publicProxyHostForRewrite = `${requestProtocol}://${requestHost}`;
-
-                // Perform the replacement for http://localhost/ or http://localhost:PORT/
-                const localhostRegex = /(https?:\/\/localhost(:\d+)?)(?=\/|$|['";\s])/g;
-                const rewrittenBody = decodedBody.replace(localhostRegex, publicProxyHostForRewrite);
-
-                let reencodedBody;
-                // Re-compress if original was compressed
-                try {
-                    if (contentEncoding === 'gzip') {
-                        reencodedBody = zlib.gzipSync(rewrittenBody);
-                    } else if (contentEncoding === 'deflate') {
-                        reencodedBody = zlib.deflateSync(rewrittenBody);
-                    } else {
-                        reencodedBody = Buffer.from(rewrittenBody, 'utf8');
-                    }
-                } catch (e) {
-                    console.error('Error re-compressing response body:', e);
-                    // Fallback to sending uncompressed modified body if re-compression fails
-                    reencodedBody = Buffer.from(rewrittenBody, 'utf8');
-                    // Remove content-encoding header if re-compression failed
-                    delete proxyRes.headers['content-encoding'];
-                }
-
-                // Update headers for the client response
-                res.setHeader('Content-Length', reencodedBody.length);
-                // Preserve original content-type and content-encoding (if re-compression succeeded)
-                if (contentType) res.setHeader('Content-Type', contentType);
-                if (contentEncoding && reencodedBody !== Buffer.from(rewrittenBody, 'utf8')) { // Only set if original was compressed and re-compression worked
-                    res.setHeader('Content-Encoding', contentEncoding);
-                } else {
-                    // If re-compression failed or wasn't needed, ensure content-encoding is removed
-                    delete proxyRes.headers['content-encoding'];
-                }
-
-
-                // Pipe other headers from the original response to the client response
-                Object.keys(originalHeaders).forEach(header => {
-                    // Avoid overwriting headers we explicitly handle (Content-Type, Content-Length, Content-Encoding)
-                    if (!['content-type', 'content-length', 'content-encoding'].includes(header.toLowerCase())) {
-                        res.setHeader(header, originalHeaders[header]);
-                    }
-                });
-
-                // Send the modified body
-                res.end(reencodedBody);
-            });
-        } else {
-            // For non-text content, or if no rewriting is needed, just pipe the original response
-            proxyRes.pipe(res);
-        }
-        // --- End: Logic for rewriting response body URLs ---
-
-        // Also handle Location header for redirects (from previous iteration)
-        if (proxyRes.statusCode >= 300 && proxyRes.statusCode < 400 && proxyRes.headers.location) {
-            let location = proxyRes.headers.location;
-            console.log(`DEBUG: Original redirect Location header: ${location}`);
-
-            // If the redirect location points to localhost, rewrite it to use the dynamically determined public proxy host
-            if (location.startsWith('http://localhost')) {
-                const requestProtocol = req.protocol || (req.socket.encrypted ? 'https' : 'http');
-                const requestHost = req.headers.host;
-                const publicProxyHostForRewrite = `${requestProtocol}://${requestHost}`;
-                location = location.replace(/^http:\/\/localhost(:\d+)?/, publicProxyHostForRewrite);
-                console.log(`DEBUG: Rewriting redirect Location header to: ${location}`);
-                proxyRes.headers.location = location;
-            }
-        }
-    },
-    onError: (err, req, res) => {
-        console.error(`Proxy error for ${req.originalUrl}:`, err);
-        res.status(500).send('Proxy Error: Could not reach the target server.');
-    },
+    }
 });
 
 
@@ -632,44 +713,10 @@ const apiProxy = createProxyMiddleware({
 // --- APPLY PAYWALL MIDDLEWARE BEFORE THE PROXY ---
 app.use(paywallMiddleware);
 
-// Use the proxy middleware for all requests starting with '/' (root path)
+// Register the proxy middleware directly
 app.use('/', apiProxy);
 
-// Basic route for the root URL to show that the proxy is running
-app.get('/', (req, res) => {
-    // NEW: Use APP_BASE_URL from environment, fallback to dynamic request host
-    const currentUrlBase = process.env.APP_BASE_URL || `${req.protocol || (req.socket.encrypted ? 'https' : 'http')}://${req.headers.host}`;
 
-    res.send(`
-        <h1>Node.js HTTPS Proxy Server with Database-backed Paywall & Rate Limiting (Local Deployment)</h1>
-        <p>This server is proxying all requests from <code>/</code> to <code>${TARGET_URL}</code>.</p>
-        <p><strong>IMPORTANT:</strong> You must access this via HTTPS (e.g., <a href="https://localhost:${PORT}/">https://localhost:${PORT}/</a>).</p>
-        <p>Since this is a self-signed certificate, your browser will show a security warning. You need to proceed past it.</p>
-        <p>To gain access, provide a valid API key once. A cookie will then remember your authentication.</p>
-        <h2>Admin API Endpoints (for 3rd Party Subscription Manager)</h2>
-        <p>These endpoints require the <code>X-Admin-Secret</code> header or <code>adminSecret</code> query parameter.</p>
-        <h3>Generate/Update API Key: <code>POST /api/generate-token</code></h3>
-        <p><strong>Example curl (Windows):</strong></p>
-        <pre><code>curl.exe -k -X POST -H "Content-Type: application/json" ^
--H "X-Admin-Secret: ${ADMIN_SECRET_KEY}" ^
--d "{\"userIdentifier\": \"testuser@example.com\", \"subscriptionStatus\": \"active\"}" ^
-${currentUrlBase}/api/generate-token</code></pre>
-
-        <h3>Update Subscription Status: <code>POST /api/update-subscription-status</code></h3>
-        <p><strong>Example curl (Windows):</strong></p>
-        <pre><code>curl.exe -k -X POST -H "Content-Type: application/json" ^
--H "X-Admin-Secret: ${ADMIN_SECRET_KEY}" ^
--d "{\"userIdentifier\": \"testuser@example.com\", \"subscriptionStatus\": \"inactive\"}" ^
-${currentUrlBase}/api/update-subscription-status</code></pre>
-
-        <h2>User Access</h2>
-        <p>1. Try visiting: <a href="${currentUrlBase}/">${currentUrlBase}/</a> (will be Unauthorized)</p>
-        <p>2. Get authorized (sets cookie): <a href="${currentUrlBase}/?apiKey=YOUR_GENERATED_API_KEY">${currentUrlBase}/?apiKey=YOUR_GENERATED_API_KEY</a></p>
-        <p>3. After step 2, try visiting: <a href="${currentUrlBase}/">${currentUrlBase}/</a> again (should now be authorized by cookie)</p>
-        <p>Or use a header for initial authorization: <code>Authorization: Bearer YOUR_GENERATED_API_KEY</code></p>
-        <p>The proxy is listening on port ${PORT}.</p>
-    `);
-});
 
 // --- Server Creation (Conditional HTTP/HTTPS) ---
 let server;
