@@ -3,6 +3,8 @@
 
 This project is a Node.js/Express-based proxy server with a paywall, user authentication, admin API endpoints, and dynamic proxying to a target backend. It supports HTTPS, MySQL user management, JWT authentication, and rate limiting.
 
+Version: 1.0.1
+
 ## Features
 
 - **Proxying**: Proxies requests to a configurable backend (`TARGET_URL`).
