@@ -58,7 +58,7 @@ app.use((req, res, next) => {
     const origin = req.headers.origin;
 
     // Update this if supporting multiple origins
-    const allowedOrigin = 'http://localhost:8080';
+    const allowedOrigin = 'https://benefitsacademytoolbox.com/';
 
     if (origin === allowedOrigin) {
         res.header('Access-Control-Allow-Origin', allowedOrigin);
@@ -336,7 +336,6 @@ const apiLimiter = rateLimit({
     }
 });
 // --- END Rate Limiting Configuration ---
-
 
 
 // =========================================
