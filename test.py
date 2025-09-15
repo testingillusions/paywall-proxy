@@ -177,9 +177,93 @@ def test_rate_limiting():
     print(f"\nRate limiting test complete. Successful: {success_count}, Rate Limited: {rate_limit_count}")
     pause_script()
 
+def test_update_tier_to_cct():
+    """Test 6: Update User Tier to CCT (Admin API)."""
+    print_section_header("Test 6: Update User Tier to CCT (Admin API)")
+    headers = {
+        "Content-Type": "application/json",
+        "X-Admin-Secret": ADMIN_SECRET_KEY
+    }
+    data = {
+        "userIdentifier": TEST_USER_IDENTIFIER,
+        "tier": "CCT"
+    }
+    response = make_request("POST", f"{PROXY_URL}/api/update-tier", headers=headers, data=data)
+    if response and response.status_code == 200:
+        print("SUCCESS: User tier updated to 'CCT'.")
+    else:
+        print(f"FAILURE: Could not update tier. Status: {response.status_code if response else 'no response'}.")
+    pause_script()
+
+def test_cct_access():
+    """Test 7: CCT Access with CCT Tier via /secure-cct/ route."""
+    print_section_header("Test 7: CCT Access with CCT Tier via /secure-cct/ route")
+    if not GENERATED_API_KEY:
+        print("Skipping: API Key not generated. Run Test 1 first.")
+        pause_script()
+        return
+
+    headers = {"Authorization": f"Bearer {GENERATED_API_KEY}"}
+    response = make_request("GET", f"{PROXY_URL}/secure-cct/", headers=headers)
+    if response and response.status_code == 200:
+        print("SUCCESS: Received 200 OK for CCT route with CCT tier.")
+    else:
+        print(f"FAILURE: Expected 200 OK for CCT route, but got {response.status_code if response else 'no response'}.")
+    pause_script()
+
+def test_update_tier_to_pct():
+    """Test 8: Update User Tier back to PCT (Admin API)."""
+    print_section_header("Test 8: Update User Tier back to PCT (Admin API)")
+    headers = {
+        "Content-Type": "application/json",
+        "X-Admin-Secret": ADMIN_SECRET_KEY
+    }
+    data = {
+        "userIdentifier": TEST_USER_IDENTIFIER,
+        "tier": "PCT"
+    }
+    response = make_request("POST", f"{PROXY_URL}/api/update-tier", headers=headers, data=data)
+    if response and response.status_code == 200:
+        print("SUCCESS: User tier updated back to 'PCT'.")
+    else:
+        print(f"FAILURE: Could not update tier. Status: {response.status_code if response else 'no response'}.")
+    pause_script()
+
+def test_cct_access_denied():
+    """Test 9: CCT Access Denied with PCT Tier via /secure-cct/ route."""
+    print_section_header("Test 9: CCT Access Denied with PCT Tier via /secure-cct/ route")
+    if not GENERATED_API_KEY:
+        print("Skipping: API Key not generated. Run Test 1 first.")
+        pause_script()
+        return
+
+    headers = {"Authorization": f"Bearer {GENERATED_API_KEY}"}
+    response = make_request("GET", f"{PROXY_URL}/secure-cct/", headers=headers)
+    if response and response.status_code == 403:
+        print("SUCCESS: Received 403 Forbidden for CCT route with PCT tier.")
+    else:
+        print(f"FAILURE: Expected 403 Forbidden for CCT route, but got {response.status_code if response else 'no response'}.")
+    pause_script()
+
+def test_get_user_info():
+    """Test 10: Get User Information including Tier (Admin API)."""
+    print_section_header("Test 10: Get User Information including Tier (Admin API)")
+    headers = {
+        "X-Admin-Secret": ADMIN_SECRET_KEY
+    }
+    params = {
+        "userIdentifier": TEST_USER_IDENTIFIER
+    }
+    response = make_request("GET", f"{PROXY_URL}/api/user-info", headers=headers, params=params)
+    if response and response.status_code == 200:
+        print("SUCCESS: Retrieved user information.")
+    else:
+        print(f"FAILURE: Could not get user info. Status: {response.status_code if response else 'no response'}.")
+    pause_script()
+
 def test_update_subscription_inactive():
-    """Test 6: Update Subscription Status to Inactive (Admin API)."""
-    print_section_header("Test 6: Update Subscription Status to Inactive (Admin API)")
+    """Test 11: Update Subscription Status to Inactive (Admin API)."""
+    print_section_header("Test 11: Update Subscription Status to Inactive (Admin API)")
     headers = {
         "Content-Type": "application/json",
         "X-Admin-Secret": ADMIN_SECRET_KEY
@@ -196,8 +280,8 @@ def test_update_subscription_inactive():
     pause_script()
 
 def test_unauthorized_after_inactive():
-    """Test 7: User Access - Unauthorized (After Subscription Inactive)."""
-    print_section_header("Test 7: User Access - Unauthorized (After Subscription Inactive)")
+    """Test 12: User Access - Unauthorized (After Subscription Inactive)."""
+    print_section_header("Test 12: User Access - Unauthorized (After Subscription Inactive)")
     if not GENERATED_API_KEY:
         print("Skipping: API Key not generated. Run Test 1 first.")
         pause_script()
@@ -236,9 +320,16 @@ if __name__ == "__main__":
     test_authorized_access_header()
     test_authorized_access_query()
     test_rate_limiting()
+    
+    # Test tier functionality
+    test_update_tier_to_cct()
+    test_cct_access()
+    test_update_tier_to_pct()
+    test_cct_access_denied()
+    test_get_user_info()
+    
     test_update_subscription_inactive()
     test_unauthorized_after_inactive()
 
     print_section_header("All Tests Completed")
     print("Please review the output above.")
-

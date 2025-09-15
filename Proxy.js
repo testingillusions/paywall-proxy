@@ -1,393 +1,83 @@
+const express = require('express');
+const { createProxyMiddleware } = require('http-proxy-middleware');
+const rateLimit = require('express-rate-limit');
+const mysql = require('mysql2/promise');
+const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
+const https = require('https');
+const fs = require('fs');
 
-// =========================================
-// Load Environment Variables and Modules
-// =========================================
-// NEW: Load environment variables from .env file
-require('dotenv').config();
-
-// Import necessary modules
-const express = require('express'); // Express.js for creating the server
-const { createProxyMiddleware } = require('http-proxy-middleware'); // Middleware for proxying requests
-const zlib = require('zlib'); // Node.js built-in module for compression/decompression
-const https = require('https'); // Import https module
-const http = require('http');   // Import http module
-const fs = require('fs');       // Import fs module to read certificate files
-const cookieParser = require('cookie-parser'); // Import cookie-parser
-const jwt = require('jsonwebtoken'); // Import jsonwebtoken
-const mysql = require('mysql2/promise'); // Import mysql2 for database connection
-const crypto = require('crypto'); // For generating random API keys
-const rateLimit = require('express-rate-limit'); // Import express-rate-limit
-const bcrypt = require('bcrypt'); //Import bcrypt for login screen 
-
-// In memory implementation for storing launch keys. 
-// NOTE: This will need to be updated if scaling the proxy is necessary. 
-const launchTokens = {}; // token -> { apiKey, expires }
-
-
-//Add in Health Check path for Amazon Load Balancing
-const appHealth = express()
-const port = 3002
-
-appHealth.get('/healthcheck', (req, res) => res.send('Hello World!'))
-appHealth.listen(port, () => console.log(`Example app listening on port ${port}!`));
-
-
-
-// =========================================
-// Initialize Express Application
-// =========================================
-// Initialize the Express application
 const app = express();
-app.use(express.json()); // Enable parsing of JSON request bodies for API endpoints
-app.use('/images', express.static('public/images'));
 
-// --- Log incoming requests (essential monitoring) ---
-app.use((req, res, next) => {
-    // Only log non-asset requests to reduce noise
-    if (!req.originalUrl.startsWith('/images/') && 
-        !req.originalUrl.startsWith('/css/') && 
-        !req.originalUrl.startsWith('/js/') &&
-        !req.originalUrl.endsWith('.ico')) {
-        console.log(`INFO: ${req.method} ${req.originalUrl} - ${req.ip}`);
-    }
-    next();
-});
-
-
-app.use((req, res, next) => {
-    const origin = req.headers.origin;
-
-    // Update this if supporting multiple origins
-    const allowedOrigin = 'https://benefitsacademytoolbox.com/';
-
-    if (origin === allowedOrigin) {
-        res.header('Access-Control-Allow-Origin', allowedOrigin);
-        res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-        res.header('Access-Control-Allow-Headers', 'Authorization, Content-Type');
-        res.header('Access-Control-Allow-Credentials', 'true');
-    }
-
-    // Security headers
-    res.header('X-Content-Type-Options', 'nosniff');
-    res.header('X-Frame-Options', 'DENY');
-    
-    if (req.method === 'OPTIONS') {
-        return res.sendStatus(200);
-    }
-
-    next();
-});
-
-// --- Use cookie-parser middleware ---
-app.use(cookieParser());
-
-// Add healthcheck endpoint to main app (in addition to the separate appHealth instance)
-app.get('/healthcheck', (req, res) => {
-    res.status(200).send('OK');
-});
-
-
-
-// =========================================
-// Server Port and Target Configuration
-// =========================================
-// Define the port on which the proxy server will listen
-// Read from .env, fallback to 443
+// --- CONFIGURATION ---
 const PORT = process.env.PORT || 443;
-
-// Define the target URL to which requests will be proxied.
-// Read from .env, fallback to default
 const TARGET_URL = process.env.TARGET_URL || 'http://tba.uglyyellowbunny.com/';
+const CCT_TARGET_URL = process.env.CCT_TARGET_URL || 'https://tba-cloud.uglyyellowbunny.com/ctt/';
+const AUTH_COOKIE_NAME = 'auth-token';
+const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(32).toString('hex');
+const ADMIN_SECRET_KEY = process.env.ADMIN_SECRET_KEY || '43cc3acc34b59a930b6dd52ba89c85d';
 
-console.log(`INFO: Proxy target URL set to: ${TARGET_URL}`);
+console.log(`INFO: PCT Proxy target URL set to: ${TARGET_URL}`);
+console.log(`INFO: CCT Proxy target URL set to: ${CCT_TARGET_URL}`);
 
-// Test if target URL is reachable
-console.log('INFO: Testing target URL connectivity...');
-const testTarget = () => {
-    const targetProtocol = TARGET_URL.startsWith('https:') ? https : http;
-    const testReq = targetProtocol.get(TARGET_URL, (testRes) => {
-        console.log(`INFO: Target URL test - Status: ${testRes.statusCode}`);
-    });
-    testReq.on('error', (err) => {
-        console.error(`ERROR: Target URL test failed:`, err.message);
-    });
-    testReq.setTimeout(5000, () => {
-        console.log('INFO: Target URL test - Timeout after 5 seconds');
-        testReq.destroy();
-    });
-};
-testTarget();
-
-
-// =========================================
-// HTTPS Certificate Loading and Validation
-// =========================================
-// --- HTTPS Certificate Credentials ---
-// For local deployment, these files (key.pem, cert.pem) should be in the same directory.
-// Environment variables TLS_KEY_PATH and TLS_CERT_PATH are for container deployments.
-let credentials = null;
-// Use USE_HTTPS env var to explicitly enable HTTPS, or if PORT is 443
-if (process.env.USE_HTTPS === 'true' || PORT === 443) {
-    try {
-        const privateKey = fs.readFileSync(process.env.TLS_KEY_PATH || 'key.pem', 'utf8');
-        const certificate = fs.readFileSync(process.env.TLS_CERT_PATH || 'cert.pem', 'utf8');
-        credentials = { key: privateKey, cert: certificate };
-        console.log('INFO: HTTPS certificates loaded.');
-    } catch (err) {
-        console.error('ERROR: Could not load HTTPS certificates. Ensure key.pem/cert.pem or TLS_KEY_PATH/TLS_CERT_PATH are correct. Falling back to HTTP if port is not 443.', err.message);
-        if (PORT === 443) {
-            console.error('FATAL: Cannot start HTTPS server on port 443 without valid certificates. Exiting.');
-            process.exit(1);
-        }
-    }
-}
-// --- END HTTPS Certificate Credentials ---
-
-
-
-// =========================================
-// MySQL Database Initialization and Validation
-// =========================================
-// --- MySQL Database Configuration ---
+// MySQL Database Configuration (using environment variables)
 const dbConfig = {
-    host: process.env.DB_HOST, // Read from .env
-    user: process.env.DB_USER, // Read from .env
-    password: process.env.DB_PASSWORD, // Read from .env
-    database: process.env.DB_NAME // Read from .env
+    host: process.env.DB_HOST || 'localhost',
+    user: process.env.DB_USER || 'paywall_proxy_user',
+    password: process.env.DB_PASSWORD || 'StrongDBPassword123',
+    database: process.env.DB_NAME || 'paywall_proxy',
+    waitForConnections: true,
+    connectionLimit: 10,
+    queueLimit: 0
 };
 
-// Basic validation for DB config
-if (!dbConfig.host || !dbConfig.user || !dbConfig.password || !dbConfig.database) {
-    console.error('FATAL ERROR: Missing one or more required database environment variables (DB_HOST, DB_USER, DB_PASSWORD, DB_NAME). Please check your .env file.');
-    process.exit(1);
-}
+const pool = mysql.createPool(dbConfig);
 
+// --- MIDDLEWARE SETUP ---
+app.use(express.json());
 
-let pool; // Connection pool for MySQL
-
-async function initializeDatabase() {
-    try {
-        pool = mysql.createPool(dbConfig);
-        console.log('INFO: MySQL database connection pool created successfully.');
-        // Test the connection
-        await pool.query('SELECT 1 + 1 AS solution');
-        console.log('INFO: Successfully connected to MySQL database.');
-    } catch (err) {
-        console.error('FATAL ERROR: Could not connect to MySQL database:', err.message);
-        process.exit(1); // Exit the process if database connection fails
-    }
-}
-
-// Initialize database connection when the application starts
-initializeDatabase();
-// --- END MySQL Database Configuration ---
-
-
-
-// =========================================
-// API Key / Cookie-based Paywall Middleware
-// =========================================
-// --- PAYWALL CONFIGURATION ---
-const JWT_SECRET = process.env.JWT_SECRET; // Read from .env
-const AUTH_COOKIE_NAME = 'auth_token';
-const ADMIN_SECRET_KEY = process.env.ADMIN_SECRET_KEY; // Read from .env
-
-// Basic validation for app secrets
-if (!JWT_SECRET || !ADMIN_SECRET_KEY) {
-    console.error('FATAL ERROR: Missing one or more required application secret environment variables (JWT_SECRET, ADMIN_SECRET_KEY). Please check your .env file.');
-    process.exit(1);
-}
-
-// Paywall Middleware
-const paywallMiddleware = async (req, res, next) => { // Made async to use await for DB queries
-    // Define paths that should NOT require an API key (e.g., static assets that are publicly accessible)
-    // Also exclude the new API management endpoints from the main paywall
-    const EXCLUDED_PAYWALL_PATHS = [
-        '/css/',
-        '/js/',
-        '/images/',
-        '/assets/',
-        '/favicon.ico',
-        '/healthcheck',
-        '/api/generate-token', // Exclude API management endpoints
-        '/api/update-subscription-status',    // Exclude API management endpoints
-        '/app/modules/tba/'
-    ];
-
-    // Check if the current request path starts with any of the excluded paths
-    const isExcludedPath = EXCLUDED_PAYWALL_PATHS.some(prefix => req.originalUrl.startsWith(prefix));
-
-    // --- ALWAYS try to authenticate the user first (even for excluded paths) ---
-    // This ensures req.user is available for header injection
-    
-    // Check for existing authentication cookie first
-    const authToken = req.cookies[AUTH_COOKIE_NAME];
-    if (authToken) {
-        try {
-            const decoded = jwt.verify(authToken, JWT_SECRET);
-            if (decoded.authenticated === true && decoded.api_key) {
-                // Verify the API key from the token against the database to ensure subscription is active
-                const [rows] = await pool.query('SELECT user_identifier, subscription_status, email FROM users WHERE api_key = ?', [decoded.api_key]);
-                if (rows.length > 0 && rows[0].subscription_status === 'active') {
-                    console.log(`INFO: Access granted via cookie for user: ${decoded.user}`);
-                    // Attach user info to request for potential future use (e.g., rate limiting by user)
-                    req.user = { 
-                        apiKey: decoded.api_key, 
-                        userIdentifier: decoded.user,
-                        email: decoded.email || decoded.user,
-                        planTier: decoded.planTier || 'Tier1'
-                    };
-                    
-                    // For excluded paths, skip paywall but allow headers to be injected
-                    if (isExcludedPath) {
-                        return next();
-                    }
-                    
-                    return next(); // Valid cookie and active subscription found, proceed
-                } else {
-                    console.warn(`WARNING: Cookie valid but subscription status is not active for API Key: ${decoded.api_key}`);
-                    res.clearCookie(AUTH_COOKIE_NAME); // Clear invalid cookie
-                }
-            }
-        } catch (err) {
-            console.warn(`WARNING: Invalid or expired cookie: ${err.message}`);
-            // If cookie is invalid, clear it to force re-authentication
-            res.clearCookie(AUTH_COOKIE_NAME);
-        }
-    }
-
-    // If we reach here, user is not authenticated
-    // For excluded paths, allow access without authentication (but no req.user)
-    if (isExcludedPath) {
-        return next();
-    }
-
-    // --- Check for API Key in Header or Query (if no valid cookie was found) ---
-    const apiKeyFromHeader = req.headers['authorization'];
-    const apiKeyFromQuery = req.query.apiKey;
-
-    let providedApiKey = null;
-
-    if (apiKeyFromHeader && apiKeyFromHeader.startsWith('Bearer ')) {
-        providedApiKey = apiKeyFromHeader.split(' ')[1];
-    } else if (apiKeyFromQuery) {
-        providedApiKey = apiKeyFromQuery;
-    }
-
-    if (providedApiKey) {
-        try {
-            // Query database to validate the provided API key
-            const [rows] = await pool.query('SELECT user_identifier, subscription_status, email FROM users WHERE api_key = ?', [providedApiKey]);
-
-            if (rows.length > 0 && rows[0].subscription_status === 'active') {
-                console.log(`INFO: Access granted via API Key: ${providedApiKey} (User: ${rows[0].user_identifier})`);
-
-                // Set authentication cookie upon successful API key validation
-                const token = jwt.sign({ authenticated: true, api_key: providedApiKey, user: rows[0].user_identifier }, JWT_SECRET, { expiresIn: '1h' }); // Token valid for 1 hour
-                res.cookie(AUTH_COOKIE_NAME, token, {
-                    httpOnly: true, // Prevents client-side JavaScript from accessing the cookie
-                    secure: true,   // Ensures cookie is only sent over HTTPS
-                    sameSite: 'lax' // Recommended for CSRF protection
-                });
-                console.log(`INFO: Authentication cookie set for ${req.originalUrl}`);
-                // Attach user info to request for potential future use (e.g., rate limiting by user)
-                req.user = { 
-                    apiKey: providedApiKey, 
-                    userIdentifier: rows[0].user_identifier,
-                    email: rows[0].email || rows[0].user_identifier,
-                    planTier: 'Tier1' // You can make this dynamic based on user data
-                };
-
-                next(); // API key is valid and active, proceed
-            } else {
-                console.warn(`WARNING: Access denied: API Key "${providedApiKey}" not found or subscription not active.`);
-                res.status(401).send('Unauthorized: Invalid or inactive API Key.');
-            }
-        } catch (dbError) {
-            console.error('ERROR: Database error during API Key validation:', dbError);
-            res.status(500).send('Internal Server Error during authentication.');
-        }
-    } else {
-        console.warn(`WARNING: Access denied: No API Key or valid cookie provided.`);
-        res.redirect('/login');
-    }
-};
-// --- END PAYWALL CONFIGURATION ---
-
-
-
-// =========================================
-// Express Rate Limiter to Prevent Abuse
-// =========================================
-// --- Rate Limiting Configuration ---
-const apiLimiter = rateLimit({
+// Rate limiting middleware
+const limiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 100, // Limit each IP to 100 requests per windowMs
-    message: 'Too many requests from this IP, please try again after 15 minutes.',
-    statusCode: 429, // 429 Too Many Requests
-    // Optional: keyGenerator can be used to limit by API key if req.user is populated
-    // keyGenerator: (req) => {
-    //     return req.user ? req.user.apiKey : req.ip; // Limit by API key if authenticated, else by IP
-    // },
-    // Optional: handler to customize response for rate-limited requests
-    handler: (req, res, next) => {
-        console.warn(`WARNING: Rate limit exceeded for IP: ${req.ip} (URL: ${req.originalUrl})`);
-        res.status(apiLimiter.statusCode).send(apiLimiter.message);
-    }
+    max: 100,
+    message: 'Too many requests, please try again later.',
+    standardHeaders: true,
+    legacyHeaders: false,
 });
-// --- END Rate Limiting Configuration ---
 
-
-// =========================================
-// Admin API Endpoints for Token Management
-// =========================================
-// --- API Endpoints for Token Management (for 3rd party subscription manager) ---
-
-// Middleware to protect API management endpoints
+// Admin authentication middleware
 const adminAuthMiddleware = (req, res, next) => {
-    const adminKey = req.headers['x-admin-secret'] || req.query.adminSecret;
-    if (adminKey === ADMIN_SECRET_KEY) {
-        next();
-    } else {
-        console.warn('WARNING: Unauthorized access attempt to admin API.');
-        res.status(403).send('Forbidden: Admin secret required.');
+    const adminSecret = req.headers['x-admin-secret'];
+    if (adminSecret !== ADMIN_SECRET_KEY) {
+        return res.status(403).json({ error: 'Forbidden: Invalid admin secret' });
     }
+    next();
 };
 
-// API to generate a new API key for a user
+// --- ADMIN API ROUTES ---
 app.post('/api/generate-token', adminAuthMiddleware, async (req, res) => {
-    const { userIdentifier, subscriptionStatus = 'active' } = req.body; // userIdentifier is required
+    const { userIdentifier, subscriptionStatus } = req.body;
 
-    if (!userIdentifier) {
-        return res.status(400).json({ error: 'userIdentifier is required.' });
+    if (!userIdentifier || !subscriptionStatus) {
+        return res.status(400).json({ error: 'userIdentifier and subscriptionStatus are required.' });
     }
 
+    const apiKey = crypto.randomBytes(32).toString('hex');
+
     try {
-        const newApiKey = crypto.randomBytes(32).toString('hex'); // Generate a 64-char hex string
+        await pool.query('INSERT INTO users (user_identifier, api_key, subscription_status, tier) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE api_key = VALUES(api_key), subscription_status = VALUES(subscription_status), updated_at = CURRENT_TIMESTAMP',
+            [userIdentifier, apiKey, subscriptionStatus, 'PCT']);
 
-        // Check if user already exists
-        const [existingUsers] = await pool.query('SELECT id, api_key FROM users WHERE user_identifier = ?', [userIdentifier]);
-
-        if (existingUsers.length > 0) {
-            // Update existing user's API key and status
-            await pool.query('UPDATE users SET api_key = ?, subscription_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [newApiKey, subscriptionStatus, existingUsers[0].id]);
-            console.log(`INFO: Updated API Key for existing user "${userIdentifier}".`);
-        } else {
-            // Insert new user
-            await pool.query('INSERT INTO users (user_identifier, api_key, subscription_status) VALUES (?, ?, ?)', [userIdentifier, newApiKey, subscriptionStatus]);
-            console.log(`INFO: Generated new API Key for user "${userIdentifier}".`);
-        }
-
-        res.status(200).json({ userIdentifier, apiKey: newApiKey, subscriptionStatus });
+        console.log(`INFO: Generated API Key for user "${userIdentifier}" with status "${subscriptionStatus}".`);
+        res.status(200).json({ userIdentifier, apiKey, subscriptionStatus, tier: 'PCT' });
     } catch (dbError) {
         console.error('ERROR: Database error generating token:', dbError);
         res.status(500).json({ error: 'Failed to generate token due to database error.' });
     }
 });
 
-// API to revoke/update a user's subscription status
 app.post('/api/update-subscription-status', adminAuthMiddleware, async (req, res) => {
-    const { userIdentifier, subscriptionStatus } = req.body; // userIdentifier and subscriptionStatus are required
+    const { userIdentifier, subscriptionStatus } = req.body;
 
     if (!userIdentifier || !subscriptionStatus) {
         return res.status(400).json({ error: 'userIdentifier and subscriptionStatus are required.' });
@@ -401,335 +91,248 @@ app.post('/api/update-subscription-status', adminAuthMiddleware, async (req, res
         }
 
         console.log(`INFO: Updated subscription status for user "${userIdentifier}" to "${subscriptionStatus}".`);
-        res.status(200).json({ userIdentifier, subscriptionStatus, message: 'Subscription status updated successfully.' });
+        res.status(200).json({ userIdentifier, subscriptionStatus });
     } catch (dbError) {
         console.error('ERROR: Database error updating subscription status:', dbError);
         res.status(500).json({ error: 'Failed to update subscription status due to database error.' });
     }
 });
-// --- END API Endpoints for Token Management ---
 
+// API to update a user's tier
+app.post('/api/update-tier', adminAuthMiddleware, async (req, res) => {
+    const { userIdentifier, tier } = req.body;
 
-// Define a list of file extensions that are NOT allowed to be proxied
-const DISALLOWED_EXTENSIONS = [
-    '.exe', '.zip', '.tar', '.gz', '.dmg', '.msi', '.bat', '.sh',
-    '.php', '.asp', '.aspx', '.jsp', '.py', '.rb', // Script files
-    '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.xlsm', '.ppt', '.pptx' // Common document types (example)
-];
-
-
-// The following endpoints are used by 3rd Party App (Wordpress) to authenticate and redirect to the proxy site. 
-// This is a two step process.
-
-//Step 1: Creating a temporary token for use by the 3rd Pary App. 
-
-app.get('/api/create-launch-token', async (req, res) => {
-    const authHeader = req.headers.authorization;
-
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        return res.status(401).send('Authorization header missing or malformed');
+    if (!userIdentifier || !tier) {
+        return res.status(400).json({ error: 'userIdentifier and tier are required.' });
     }
 
-    const apiKey = authHeader.split(' ')[1];
+    // Validate tier values
+    const validTiers = ['PCT', 'CCT'];
+    if (!validTiers.includes(tier)) {
+        return res.status(400).json({ error: 'Invalid tier. Must be PCT or CCT.' });
+    }
 
     try {
-        const [rows] = await pool.query('SELECT user_identifier, subscription_status FROM users WHERE api_key = ?', [apiKey]);
+        const [result] = await pool.query('UPDATE users SET tier = ?, updated_at = CURRENT_TIMESTAMP WHERE user_identifier = ?', [tier, userIdentifier]);
 
-        if (rows.length === 0 || rows[0].subscription_status !== 'active') {
-            return res.status(401).send('Invalid or inactive API key.');
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ error: 'User not found.' });
         }
 
-        const token = crypto.randomBytes(24).toString('hex');
-        const expires = Date.now() + 60000; // valid for 1 min
-
-        launchTokens[token] = { apiKey, expires };
-
-        const launchUrl =  process.env.APP_BASE_URL + `/auth-launch?token=${token}`;
-
-        res.json({ launch_url: launchUrl });
-    } catch (err) {
-        console.error('Launch token generation failed:', err);
-        res.status(500).send('Server error');
+        console.log(`INFO: Updated tier for user "${userIdentifier}" to "${tier}".`);
+        res.status(200).json({ userIdentifier, tier, message: 'Tier updated successfully.' });
+    } catch (dbError) {
+        console.error('ERROR: Database error updating tier:', dbError);
+        res.status(500).json({ error: 'Failed to update tier due to database error.' });
     }
 });
 
-// Step 2: Browser is launched, calling this app with the temporary token. This will validate the token, create the cookie, then 
-// redirect to the root to server up the proxy content. 
+// API to get user information including tier
+app.get('/api/user-info', adminAuthMiddleware, async (req, res) => {
+    const { userIdentifier } = req.query;
 
-//TODO: ADDED LOGIC FOR WORKAROUND WITH VUE, THIS NEEDS TO BE REMOVED AFTER MIGRATION!!!
-const tempKey = "eIAtCjEocfNqAlFZBveO6vBwL2Ra2bkO9bRPVQVAMzbOcbX6Q1Je75gu4nmAodTd"
-const tempKeyAPI= "3603b3d381d05fc28ef60adfc11c17769c9ab6945e6798a8cf87f3db0b2b4422"
+    if (!userIdentifier) {
+        return res.status(400).json({ error: 'userIdentifier is required.' });
+    }
 
-app.get('/auth-launch', async (req, res) => {
-    const token = req.query.token;
-    let apiKey; // Declare apiKey variable
-    // NOTE: This will need to be changed if scaling is required. 
+    try {
+        const [rows] = await pool.query('SELECT user_identifier, subscription_status, tier, email, created_at, updated_at FROM users WHERE user_identifier = ?', [userIdentifier]);
+
+        if (rows.length === 0) {
+            return res.status(404).json({ error: 'User not found.' });
+        }
+
+        res.status(200).json(rows[0]);
+    } catch (dbError) {
+        console.error('ERROR: Database error retrieving user info:', dbError);
+        res.status(500).json({ error: 'Failed to retrieve user info due to database error.' });
+    }
+});
+
+// --- AUTHENTICATION MIDDLEWARE ---
+const paywallMiddleware = async (req, res, next) => {
+    console.log(`INFO: Request received: ${req.method} ${req.originalUrl}`);
+
+    // Define paths that should bypass the paywall but still allow header injection
+    const excludedPaths = ['/login', '/logout', '/public', '/favicon.ico'];
+    const isExcludedPath = excludedPaths.some(path => req.originalUrl.startsWith(path));
+
+    // Check for existing authentication cookie first
+    const authToken = req.cookies[AUTH_COOKIE_NAME];
+    if (authToken) {
+        try {
+            const decoded = jwt.verify(authToken, JWT_SECRET);
+            if (decoded.authenticated === true && decoded.api_key) {
+                // Verify the API key from the token against the database to ensure subscription is active
+                const [rows] = await pool.query('SELECT user_identifier, subscription_status, email, tier FROM users WHERE api_key = ?', [decoded.api_key]);
+                if (rows.length > 0 && rows[0].subscription_status === 'active') {
+                    console.log(`INFO: Access granted via cookie for user: ${decoded.user} (Tier: ${rows[0].tier})`);
+                    // Attach user info to request including tier
+                    req.user = { 
+                        apiKey: decoded.api_key, 
+                        userIdentifier: decoded.user,
+                        email: rows[0].email || decoded.user,
+                        planTier: decoded.planTier || 'Tier1',
+                        tier: rows[0].tier || 'PCT'
+                    };
+                    
+                    // For excluded paths, skip paywall but allow headers to be injected
+                    if (isExcludedPath) {
+                        return next();
+                    }
+                    
+                    return next();
+                } else {
+                    console.warn(`WARNING: Cookie valid but subscription status is not active for API Key: ${decoded.api_key}`);
+                    res.clearCookie(AUTH_COOKIE_NAME);
+                }
+            }
+        } catch (err) {
+            console.warn(`WARNING: Invalid or expired cookie: ${err.message}`);
+            res.clearCookie(AUTH_COOKIE_NAME);
+        }
+    }
+
+    // Extract API Key from headers or query parameters
+    let providedApiKey = null;
+    const authHeader = req.headers['authorization'];
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+        providedApiKey = authHeader.split(' ')[1];
+    }
+
+    if (!providedApiKey) {
+        providedApiKey = req.query.apiKey;
+    }
+
+    if (providedApiKey) {
+        try {
+            // Query database to validate the provided API key (include tier)
+            const [rows] = await pool.query('SELECT user_identifier, subscription_status, email, tier FROM users WHERE api_key = ?', [providedApiKey]);
+
+            if (rows.length > 0 && rows[0].subscription_status === 'active') {
+                console.log(`INFO: Access granted via API Key: ${providedApiKey} (User: ${rows[0].user_identifier}, Tier: ${rows[0].tier})`);
+
+                // Set authentication cookie upon successful API key validation
+                const token = jwt.sign({ authenticated: true, api_key: providedApiKey, user: rows[0].user_identifier }, JWT_SECRET, { expiresIn: '1h' });
+                res.cookie(AUTH_COOKIE_NAME, token, {
+                    httpOnly: true,
+                    secure: true,
+                    sameSite: 'lax'
+                });
+                // Attach user info to request including tier
+                req.user = { 
+                    apiKey: providedApiKey, 
+                    userIdentifier: rows[0].user_identifier,
+                    email: rows[0].email || rows[0].user_identifier,
+                    planTier: 'Tier1',
+                    tier: rows[0].tier || 'PCT'
+                };
+
+                next();
+            } else {
+                console.warn(`WARNING: Access denied: API Key "${providedApiKey}" not found or subscription not active.`);
+                res.status(401).send('Unauthorized: Invalid or inactive API Key.');
+            }
+        } catch (dbError) {
+            console.error('ERROR: Database error during API Key validation:', dbError);
+            res.status(500).send('Internal Server Error during authentication.');
+        }
+    } else {
+        console.warn(`WARNING: Access denied: No API Key or valid cookie provided.`);
+        res.redirect('/login');
+    }
+};
+
+// Middleware to determine target based on route and user tier
+const routeMiddleware = (req, res, next) => {
+    // Check if this is a CCT route from WordPress
+    const isCCTRoute = req.originalUrl.startsWith('/secure-cct/');
     
-    if (token!=tempKey) //If not the override key
-    {
-
-        if( !token || !launchTokens[token] ) {
-        return res.status(403).send('Invalid or missing launch token.');
+    if (isCCTRoute) {
+        // CCT route requires CCT tier access
+        if (!req.user || req.user.tier !== 'CCT') {
+            console.warn(`WARNING: Access denied to CCT route for user: ${req.user ? req.user.userIdentifier : 'anonymous'} (Tier: ${req.user ? req.user.tier : 'none'})`);
+            return res.status(403).send('Forbidden: CCT tier access required for this resource.');
         }
+        req.targetUrl = CCT_TARGET_URL;
+        req.isCCTRoute = true;
+        console.log(`INFO: Routing to CCT for user: ${req.user.userIdentifier} (${req.originalUrl})`);
+    } else {
+        // PCT route - accessible by both PCT and CCT users
+        req.targetUrl = TARGET_URL;
+        req.isCCTRoute = false;
+        console.log(`INFO: Routing to PCT for user: ${req.user ? req.user.userIdentifier : 'anonymous'} (${req.originalUrl})`);
+    }
+    
+    next();
+};
+
+// Configure the proxy middleware with dynamic routing
+const createDynamicProxy = () => {
+    return (req, res, next) => {
+        const targetUrl = req.targetUrl || TARGET_URL;
         
-        const tokenData = launchTokens[token];
-        apiKey = tokenData.apiKey;
-        const expires = tokenData.expires;
-
-        if (Date.now() > expires) {
-            delete launchTokens[token];
-            return res.status(403).send('Launch token expired.');
-        }
-
-        // Token is valid
-        delete launchTokens[token];
-    }
-    else {
-        if(!req.headers.referer || !req.headers.referer=="https://tba.vueocity.com/"){
-            return res.status(403).send('Invalid or missing launch token.');
-        }
-        apiKey = tempKeyAPI;
-        console.log("WARNING: Using tempKey override from ", req.headers.referer);
-    }
-    try {
-        const [rows] = await pool.query('SELECT user_identifier, email FROM users WHERE api_key = ?', [apiKey]);
-
-        if (rows.length === 0) {
-            return res.status(403).send('User not found.');
-        }
-
-        const jwtToken = jwt.sign(
-            { 
-                authenticated: true, 
-                api_key: apiKey, 
-                user: rows[0].user_identifier,
-                email: rows[0].email || rows[0].user_identifier,
-                planTier: 'Tier1' // You can make this dynamic based on user data
+        const proxy = createProxyMiddleware({
+            target: targetUrl,
+            changeOrigin: true,
+            logLevel: 'warn',
+            pathRewrite: req.isCCTRoute ? {
+                '^/secure-cct/': '/'  // Strip /secure-cct/ and proxy to CCT root
+            } : {
+                '^/secure-proxy/': '/',
+                '^/': '/',
             },
-            JWT_SECRET,
-            { expiresIn: '1h' }
-        );
-
-        res.cookie(AUTH_COOKIE_NAME, jwtToken, {
-            httpOnly: true,
-            secure: true,
-            sameSite: 'Lax'
-        });
-
-        return res.redirect('/');
-    } catch (err) {
-        console.error('Auth-launch DB error:', err);
-        res.status(500).send('Server error');
-    }
-});
-
-// Used to prompt user for a username and password.
-app.get('/login', (req, res) => {
-    res.send(`
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>Login</title>
-    <link
-      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
-      rel="stylesheet"
-    >
-    <style>
-        body {
-            background-color: #f8f9fa;
-        }
-        .login-container {
-            max-width: 400px;
-            margin: 80px auto;
-            padding: 30px;
-            background-color: white;
-            border-radius: 8px;
-            box-shadow: 0 0 10px rgba(0,0,0,0.1);
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="login-container">
-            <img src="/images/tba_logo.png" alt="The Benefits Academy" class="logo">
-            <h2 class="text-center mb-4">Login</h2>
-            <form method="POST" action="/login">
-                <div class="mb-3">
-                    <label for="email" class="form-label">Email address</label>
-                    <input type="email" class="form-control" name="email" id="email" required>
-                </div>
-                <div class="mb-3">
-                    <label for="password" class="form-label">Password</label>
-                    <input type="password" class="form-control" name="password" id="password" required>
-                </div>
-                <div class="d-grid">
-                    <button type="submit" class="btn btn-primary">Sign In</button>
-                </div>
-            </form>
-        </div>
-    </div>
-</body>
-</html>
-    `);
-});
-
-app.post('/login', express.urlencoded({ extended: true }), async (req, res) => {
-    const { email, password } = req.body;
-
-    if (!email || !password) {
-        return res.status(400).send('Missing email or password.');
-    }
-
-    try {
-        const [rows] = await pool.query('SELECT api_key, user_identifier, subscription_status, password_hash FROM users WHERE email = ?', [email]);
-
-        if (rows.length === 0) {
-            return res.status(401).send('Invalid email or password.');
-        }
-
-        const user = rows[0];
-        const passwordMatch = await bcrypt.compare(password, user.password_hash);
-        if (!passwordMatch) {
-            return res.status(401).send('Invalid email or password.');
-        }
-
-        if (user.subscription_status !== 'active') {
-            return res.status(403).send('Your subscription is not active.');
-        }
-
-        const token = jwt.sign(
-            { 
-                authenticated: true, 
-                api_key: user.api_key, 
-                user: user.user_identifier,
-                email: email,
-                planTier: 'Tier1' // You can make this dynamic based on user data
-            },
-            JWT_SECRET,
-            { expiresIn: '1h' }
-        );
-
-        res.cookie(AUTH_COOKIE_NAME, token, {
-            httpOnly: true,
-            secure: true,
-            sameSite: 'Lax'
-        });
-        res.redirect('/'); // Redirect to root after successful login
-    } catch (err) {
-        console.error('Login error:', err);
-        res.status(500).send('Internal server error during login.');
-    }
-});
-
-// used to register an email/password in the database
-// Requires Admin Secret
-
-app.post('/api/register', express.urlencoded({ extended: true }), adminAuthMiddleware, async (req, res) => {
-     const { email, password } = req.body;
-
-    if (!email || !password) {
-        return res.status(400).json({ error: 'Email and password are required.' });
-    }
-
-    try {
-        const passwordHash = await bcrypt.hash(password, 10);
-        const newApiKey = crypto.randomBytes(32).toString('hex');
-
-        // Use email as the user_identifier for legacy compatibility
-        await pool.query(
-            'INSERT INTO users (email, password_hash, user_identifier, api_key, subscription_status) VALUES (?, ?, ?, ?, ?)',
-            [email, passwordHash, email, newApiKey, 'active']
-        );
-
-        res.status(201).json({
-            message: 'User registered successfully.',
-            email,
-            apiKey: newApiKey,
-            subscriptionStatus: 'active'
-        });
-    } catch (err) {
-        console.error('Registration error:', err);
-        if (err.code === 'ER_DUP_ENTRY') {
-            res.status(409).json({ error: 'Email already registered.' });
-        } else {
-            res.status(500).json({ error: 'Server error during registration.' });
-        }
-    }
-});
-
-
-// =========================================
-// Proxy Middleware Configuration and Handlers
-// =========================================
-// Configure the proxy middleware
-const apiProxy = createProxyMiddleware({
-    target: TARGET_URL,
-    changeOrigin: true,
-    logLevel: 'warn', // Reduce proxy logging noise
-    pathRewrite: {
-        '^/secure-proxy/': '/', // Remove /secure-proxy/ prefix if present
-        '^/': '/', // Ensure root paths are handled correctly
-    },
-    on: {
-        proxyReq: (proxyReq, req, res) => {
-            // Inject dynamic headers if user is authenticated
-            if (req.user && req.user.userIdentifier) {
-                proxyReq.setHeader('TBA-PLAN-TIER', req.user.planTier || 'Tier1');
-                proxyReq.setHeader('VUE-AUTH', 'AE8A774F-1DE0-4F98-B037-659645706A66');
-                proxyReq.setHeader('VUE-EMAIL', req.user.email);
-                console.log(`INFO: Injected user headers for ${req.user.email} (${req.user.planTier})`);
-            } else {
-                // Set default headers for unauthenticated requests
-                proxyReq.setHeader('TBA-PLAN-TIER', 'Tier1');
-                proxyReq.setHeader('VUE-AUTH', 'AE8A774F-1DE0-4F98-B037-659645706A66');
+            on: {
+                proxyReq: (proxyReq, req, res) => {
+                    // Only inject headers for PCT routes, not CCT
+                    if (!req.isCCTRoute && req.user && req.user.userIdentifier) {
+                        proxyReq.setHeader('TBA-PLAN-TIER', req.user.planTier || 'Tier1');
+                        proxyReq.setHeader('VUE-AUTH', 'AE8A774F-1DE0-4F98-B037-659645706A66');
+                        proxyReq.setHeader('VUE-EMAIL', req.user.email);
+                        console.log(`INFO: Injected PCT headers for ${req.user.email} (${req.user.planTier})`);
+                    } else if (req.isCCTRoute) {
+                        console.log(`INFO: CCT route - no headers injected for ${req.user ? req.user.email : 'anonymous'}`);
+                    } else {
+                        // Set default headers for unauthenticated PCT requests
+                        proxyReq.setHeader('TBA-PLAN-TIER', 'Tier1');
+                        proxyReq.setHeader('VUE-AUTH', 'AE8A774F-1DE0-4F98-B037-659645706A66');
+                    }
+                },
+                proxyRes: (proxyRes, req, res) => {
+                    if (proxyRes.statusCode >= 400) {
+                        console.warn(`WARN: Proxy response ${proxyRes.statusCode} for ${req.originalUrl} (Target: ${req.targetUrl || 'default'})`);
+                    }
+                },
+                error: (err, req, res) => {
+                    console.error(`ERROR: Proxy error for ${req.originalUrl} (Target: ${req.targetUrl || 'default'}):`, err.message);
+                    if (err.code === 'ECONNREFUSED') {
+                        res.status(502).send(`Bad Gateway: Target server ${req.targetUrl || TARGET_URL} is not responding`);
+                    } else {
+                        res.status(500).send('Proxy Error: Could not reach the target server.');
+                    }
+                }
             }
-        },
-        proxyRes: (proxyRes, req, res) => {
-            // Only log errors or important status codes
-            if (proxyRes.statusCode >= 400) {
-                console.warn(`WARN: Proxy response ${proxyRes.statusCode} for ${req.originalUrl}`);
-            }
-        },
-        error: (err, req, res) => {
-            console.error(`ERROR: Proxy error for ${req.originalUrl}:`, err.message);
-            console.error(`ERROR: Target server may be unreachable: ${TARGET_URL}`);
-            
-            // Check if it's a connection refused error
-            if (err.code === 'ECONNREFUSED') {
-                console.error(`ERROR: Connection refused to target server ${TARGET_URL} - server may be down`);
-                res.status(502).send(`Bad Gateway: Target server ${TARGET_URL} is not responding`);
-            } else {
-                res.status(500).send('Proxy Error: Could not reach the target server.');
-            }
-        }
-    }
-});
+        });
+        
+        proxy(req, res, next);
+    };
+};
 
+const dynamicProxy = createDynamicProxy();
 
-// =========================================
-// Attach Middleware and Start Proxy Server
-// =========================================
-// --- APPLY PAYWALL MIDDLEWARE BEFORE THE PROXY ---
-app.use(paywallMiddleware);
+// --- APPLY MIDDLEWARE IN CORRECT ORDER ---
+app.use(limiter);               // Rate limiting first
+app.use(paywallMiddleware);     // Authentication second
+app.use(routeMiddleware);       // Route determination third
+app.use('/', dynamicProxy);     // Dynamic proxy last
 
-// Register the proxy middleware directly
-app.use('/', apiProxy);
+// --- HTTPS SERVER SETUP ---
+const httpsOptions = {
+    key: fs.readFileSync('key.pem'),
+    cert: fs.readFileSync('cert.pem')
+};
 
-
-
-// --- Server Creation (Conditional HTTP/HTTPS) ---
-let server;
-if (credentials && (PORT === 443 || process.env.USE_HTTPS === 'true')) {
-    server = https.createServer(credentials, app);
-    console.log(`INFO: Starting HTTPS server on port ${PORT}`);
-} else {
-    server = http.createServer(app);
-    console.log(`INFO: Starting HTTP server on port ${PORT}`);
-}
-
-server.listen(PORT, () => {
-    console.log(`Proxy server is running on ${credentials ? 'https' : 'http'}://localhost:${PORT}`);
-    console.log(`Proxying requests from ${credentials ? 'https' : 'http'}://localhost:${PORT}/ to ${TARGET_URL}`);
-    console.log('To stop the server, press Ctrl+C');
+https.createServer(httpsOptions, app).listen(PORT, () => {
+    console.log(`INFO: HTTPS Proxy server is running on port ${PORT}.`);
+    console.log(`INFO: Proxying to: ${TARGET_URL} (PCT) and ${CCT_TARGET_URL} (CCT)`);
 });
