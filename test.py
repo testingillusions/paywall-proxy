@@ -6,8 +6,8 @@ import os
 # ###############################################################
 # # Configuration - REPLACE WITH YOUR ACTUAL VALUES           #
 # ###############################################################
-PROXY_URL = "https://localhost"
-ADMIN_SECRET_KEY = "admin-secret-for-subscription-manager"  # <--- REPLACE THIS WITH YOUR ACTUAL ADMIN SECRET KEY!
+PROXY_URL = "https://tba.testingillusions.com"
+ADMIN_SECRET_KEY = "43cc3acc34b59a930b6dd52ba89c85d"  # <--- REPLACE THIS WITH YOUR ACTUAL ADMIN SECRET KEY!
 TEST_USER_IDENTIFIER = "automated_test_user@example.com"
 
 # Global variable to store the generated API key
