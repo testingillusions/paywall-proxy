@@ -4,13 +4,12 @@ const rateLimit = require('express-rate-limit');
 const mysql = require('mysql2/promise');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
-const https = require('https');
-const fs = require('fs');
+const http = require('http');
 
 const app = express();
 
 // --- CONFIGURATION ---
-const PORT = process.env.PORT || 443;
+const PORT = process.env.PORT || 3000;
 const TARGET_URL = process.env.TARGET_URL || 'http://tba.uglyyellowbunny.com/';
 const CCT_TARGET_URL = process.env.CCT_TARGET_URL || 'https://tba-cloud.uglyyellowbunny.com/ctt/';
 const AUTH_COOKIE_NAME = 'auth-token';
@@ -35,6 +34,9 @@ const pool = mysql.createPool(dbConfig);
 
 // --- MIDDLEWARE SETUP ---
 app.use(express.json());
+
+// Trust proxy headers from load balancer
+app.set('trust proxy', true);
 
 // Rate limiting middleware
 const limiter = rateLimit({
@@ -216,7 +218,7 @@ const paywallMiddleware = async (req, res, next) => {
                 const token = jwt.sign({ authenticated: true, api_key: providedApiKey, user: rows[0].user_identifier }, JWT_SECRET, { expiresIn: '1h' });
                 res.cookie(AUTH_COOKIE_NAME, token, {
                     httpOnly: true,
-                    secure: true,
+                    secure: req.secure || req.get('X-Forwarded-Proto') === 'https',
                     sameSite: 'lax'
                 });
                 // Attach user info to request including tier
@@ -326,13 +328,8 @@ app.use(paywallMiddleware);     // Authentication second
 app.use(routeMiddleware);       // Route determination third
 app.use('/', dynamicProxy);     // Dynamic proxy last
 
-// --- HTTPS SERVER SETUP ---
-const httpsOptions = {
-    key: fs.readFileSync('key.pem'),
-    cert: fs.readFileSync('cert.pem')
-};
-
-https.createServer(httpsOptions, app).listen(PORT, () => {
-    console.log(`INFO: HTTPS Proxy server is running on port ${PORT}.`);
+// --- HTTP SERVER SETUP ---
+http.createServer(app).listen(PORT, () => {
+    console.log(`INFO: HTTP Proxy server is running on port ${PORT}.`);
     console.log(`INFO: Proxying to: ${TARGET_URL} (PCT) and ${CCT_TARGET_URL} (CCT)`);
 });
