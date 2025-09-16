@@ -5,6 +5,7 @@ const mysql = require('mysql2/promise');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const http = require('http');
+const cookieParser = require('cookie-parser');
 
 const app = express();
 
@@ -34,6 +35,7 @@ const pool = mysql.createPool(dbConfig);
 
 // --- MIDDLEWARE SETUP ---
 app.use(express.json());
+app.use(cookieParser());
 
 // Trust proxy headers from load balancer
 app.set('trust proxy', true);
@@ -156,7 +158,7 @@ const paywallMiddleware = async (req, res, next) => {
     console.log(`INFO: Request received: ${req.method} ${req.originalUrl}`);
 
     // Define paths that should bypass the paywall but still allow header injection
-    const excludedPaths = ['/login', '/logout', '/public', '/favicon.ico'];
+    const excludedPaths = ['/login', '/logout', '/public', '/favicon.ico', '/healthcheck'];
     const isExcludedPath = excludedPaths.some(path => req.originalUrl.startsWith(path));
 
     // Check for existing authentication cookie first
