@@ -38,7 +38,7 @@ app.use(express.json());
 app.use(cookieParser());
 
 // Trust proxy headers from load balancer
-app.set('trust proxy', true);
+app.set('trust proxy', 1); // Trust only the first proxy (your load balancer)
 
 // Rate limiting middleware
 const limiter = rateLimit({
@@ -47,6 +47,11 @@ const limiter = rateLimit({
     message: 'Too many requests, please try again later.',
     standardHeaders: true,
     legacyHeaders: false,
+    // Skip rate limiting for excluded paths and admin API
+    skip: (req) => {
+        const excludedPaths = ['/healthcheck', '/api/'];
+        return excludedPaths.some(path => req.originalUrl.startsWith(path));
+    }
 });
 
 // Admin authentication middleware
