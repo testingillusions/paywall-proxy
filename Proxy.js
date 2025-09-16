@@ -162,9 +162,14 @@ app.get('/api/user-info', adminAuthMiddleware, async (req, res) => {
 const paywallMiddleware = async (req, res, next) => {
     console.log(`INFO: Request received: ${req.method} ${req.originalUrl}`);
 
-    // Define paths that should bypass the paywall but still allow header injection
+    // Define paths that should bypass the paywall entirely
     const excludedPaths = ['/login', '/logout', '/public', '/favicon.ico', '/healthcheck'];
     const isExcludedPath = excludedPaths.some(path => req.originalUrl.startsWith(path));
+
+    if (isExcludedPath) {
+        console.log(`INFO: Bypassing authentication for excluded path: ${req.originalUrl}`);
+        return next();
+    }
 
     // Check for existing authentication cookie first
     const authToken = req.cookies[AUTH_COOKIE_NAME];
@@ -184,11 +189,6 @@ const paywallMiddleware = async (req, res, next) => {
                         planTier: decoded.planTier || 'Tier1',
                         tier: rows[0].tier || 'PCT'
                     };
-                    
-                    // For excluded paths, skip paywall but allow headers to be injected
-                    if (isExcludedPath) {
-                        return next();
-                    }
                     
                     return next();
                 } else {
@@ -237,18 +237,18 @@ const paywallMiddleware = async (req, res, next) => {
                     tier: rows[0].tier || 'PCT'
                 };
 
-                next();
+                return next();
             } else {
                 console.warn(`WARNING: Access denied: API Key "${providedApiKey}" not found or subscription not active.`);
-                res.status(401).send('Unauthorized: Invalid or inactive API Key.');
+                return res.status(401).send('Unauthorized: Invalid or inactive API Key.');
             }
         } catch (dbError) {
             console.error('ERROR: Database error during API Key validation:', dbError);
-            res.status(500).send('Internal Server Error during authentication.');
+            return res.status(500).send('Internal Server Error during authentication.');
         }
     } else {
         console.warn(`WARNING: Access denied: No API Key or valid cookie provided.`);
-        res.redirect('/login');
+        return res.redirect('/login');
     }
 };
 
@@ -256,6 +256,8 @@ const paywallMiddleware = async (req, res, next) => {
 const routeMiddleware = (req, res, next) => {
     // Check if this is a CCT route from WordPress
     const isCCTRoute = req.originalUrl.startsWith('/secure-cct/');
+    
+    console.log(`DEBUG: routeMiddleware - URL: ${req.originalUrl}, isCCTRoute: ${isCCTRoute}, user: ${req.user ? req.user.userIdentifier : 'none'}, tier: ${req.user ? req.user.tier : 'none'}`);
     
     if (isCCTRoute) {
         // CCT route requires CCT tier access
