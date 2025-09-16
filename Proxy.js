@@ -63,6 +63,15 @@ const adminAuthMiddleware = (req, res, next) => {
     next();
 };
 
+// --- HEALTH CHECK ENDPOINT ---
+app.get('/healthcheck', (req, res) => {
+    res.status(200).json({ 
+        status: 'healthy', 
+        timestamp: new Date().toISOString(),
+        service: 'paywall-proxy'
+    });
+});
+
 // --- ADMIN API ROUTES ---
 app.post('/api/generate-token', adminAuthMiddleware, async (req, res) => {
     const { userIdentifier, subscriptionStatus } = req.body;
