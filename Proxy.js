@@ -72,6 +72,123 @@ app.get('/healthcheck', (req, res) => {
     });
 });
 
+// --- LOGIN ENDPOINT ---
+app.get('/login', (req, res) => {
+    res.status(200).send(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Paywall Proxy Login</title>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>
+            body { font-family: Arial, sans-serif; max-width: 400px; margin: 100px auto; padding: 20px; }
+            .container { background: #f5f5f5; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+            h1 { color: #333; text-align: center; margin-bottom: 30px; }
+            .form-group { margin-bottom: 20px; }
+            label { display: block; margin-bottom: 5px; color: #555; }
+            input[type="text"] { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
+            button { width: 100%; padding: 12px; background: #007cba; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; }
+            button:hover { background: #005a87; }
+            .info { background: #e7f3ff; padding: 15px; border-left: 4px solid #007cba; margin-bottom: 20px; }
+            .error { background: #ffe7e7; padding: 15px; border-left: 4px solid #dc3545; margin-bottom: 20px; display: none; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>Paywall Proxy Login</h1>
+            <div class="info">
+                <strong>Access Required:</strong> Please enter your API key to continue.
+            </div>
+            <div id="error" class="error"></div>
+            <form id="loginForm">
+                <div class="form-group">
+                    <label for="apiKey">API Key:</label>
+                    <input type="text" id="apiKey" name="apiKey" required placeholder="Enter your API key">
+                </div>
+                <button type="submit">Login</button>
+            </form>
+        </div>
+        
+        <script>
+            document.getElementById('loginForm').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                
+                const apiKey = document.getElementById('apiKey').value;
+                const errorDiv = document.getElementById('error');
+                
+                if (!apiKey) {
+                    showError('Please enter an API key');
+                    return;
+                }
+                
+                try {
+                    // Test the API key by making a request with it
+                    const response = await fetch('/', {
+                        headers: {
+                            'Authorization': 'Bearer ' + apiKey
+                        }
+                    });
+                    
+                    if (response.ok) {
+                        // API key is valid, redirect to home
+                        window.location.href = '/';
+                    } else if (response.status === 401) {
+                        showError('Invalid API key. Please check your key and try again.');
+                    } else {
+                        showError('Login failed. Please try again.');
+                    }
+                } catch (error) {
+                    showError('Network error. Please try again.');
+                }
+            });
+            
+            function showError(message) {
+                const errorDiv = document.getElementById('error');
+                errorDiv.textContent = message;
+                errorDiv.style.display = 'block';
+            }
+        </script>
+    </body>
+    </html>
+    `);
+});
+
+// --- LOGOUT ENDPOINT ---
+app.get('/logout', (req, res) => {
+    res.clearCookie(AUTH_COOKIE_NAME);
+    res.status(200).send(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Logged Out - Paywall Proxy</title>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>
+            body { font-family: Arial, sans-serif; max-width: 400px; margin: 100px auto; padding: 20px; }
+            .container { background: #f5f5f5; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+            h1 { color: #333; text-align: center; margin-bottom: 30px; }
+            .success { background: #d4edda; padding: 15px; border-left: 4px solid #28a745; margin-bottom: 20px; }
+            .login-link { text-align: center; margin-top: 20px; }
+            .login-link a { color: #007cba; text-decoration: none; }
+            .login-link a:hover { text-decoration: underline; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>Logged Out</h1>
+            <div class="success">
+                <strong>Success:</strong> You have been logged out successfully.
+            </div>
+            <div class="login-link">
+                <a href="/login">Login Again</a>
+            </div>
+        </div>
+    </body>
+    </html>
+    `);
+});
+
 // --- ADMIN API ROUTES ---
 app.post('/api/generate-token', adminAuthMiddleware, async (req, res) => {
     const { userIdentifier, subscriptionStatus } = req.body;
@@ -263,6 +380,16 @@ const paywallMiddleware = async (req, res, next) => {
 
 // Middleware to determine target based on route and user tier
 const routeMiddleware = (req, res, next) => {
+    // Define paths that should bypass the paywall entirely
+    const excludedPaths = ['/login', '/logout', '/public', '/favicon.ico', '/healthcheck'];
+    const isExcludedPath = excludedPaths.some(path => req.originalUrl.startsWith(path));
+    
+    // Skip routing for excluded paths - they should be handled directly
+    if (isExcludedPath) {
+        console.log(`INFO: Skipping routing for excluded path: ${req.originalUrl}`);
+        return next();
+    }
+    
     // Check if this is a CCT route from WordPress
     const isCCTRoute = req.originalUrl.startsWith('/secure-cct/');
     
@@ -290,6 +417,16 @@ const routeMiddleware = (req, res, next) => {
 // Configure the proxy middleware with dynamic routing
 const createDynamicProxy = () => {
     return (req, res, next) => {
+        // Define paths that should not be proxied
+        const excludedPaths = ['/login', '/logout', '/public', '/favicon.ico', '/healthcheck'];
+        const isExcludedPath = excludedPaths.some(path => req.originalUrl.startsWith(path));
+        
+        // Skip proxying for excluded paths - send 404 for non-existent routes
+        if (isExcludedPath) {
+            console.log(`INFO: Skipping proxy for excluded path: ${req.originalUrl}`);
+            return res.status(404).send('Not Found');
+        }
+        
         const targetUrl = req.targetUrl || TARGET_URL;
         
         const proxy = createProxyMiddleware({
