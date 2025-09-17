@@ -12,7 +12,7 @@ const app = express();
 // --- CONFIGURATION ---
 const PORT = process.env.PORT || 3000;
 const TARGET_URL = process.env.TARGET_URL || 'http://tba.uglyyellowbunny.com/';
-const CCT_TARGET_URL = process.env.CCT_TARGET_URL || 'https://tba-cloud.uglyyellowbunny.com/';
+const CCT_TARGET_URL = process.env.CCT_TARGET_URL || 'https://tba-cloud.uglyyellowbunny.com/ctt/';
 const AUTH_COOKIE_NAME = 'auth-token';
 const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(32).toString('hex');
 const ADMIN_SECRET_KEY = process.env.ADMIN_SECRET_KEY || '43cc3acc34b59a930b6dd52ba89c85d';
@@ -297,7 +297,7 @@ const createDynamicProxy = () => {
             changeOrigin: true,
             logLevel: 'warn',
             pathRewrite: req.isCCTRoute ? {
-                '^/secure-cct': '/ctt'  // Replace /secure-cct with /ctt
+                '^/secure-cct': ''  // Strip /secure-cct completely, keep the rest
             } : {
                 '^/secure-proxy/': '/',
                 '^/': '/',
