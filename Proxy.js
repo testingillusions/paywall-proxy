@@ -43,7 +43,7 @@ app.set('trust proxy', 1); // Trust only the first proxy (your load balancer)
 // Rate limiting middleware
 const limiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 100,
+    max: 1000, // Increased limit to avoid issues during testing
     message: 'Too many requests, please try again later.',
     standardHeaders: true,
     legacyHeaders: false,
